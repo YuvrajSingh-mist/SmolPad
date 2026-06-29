@@ -37,6 +37,9 @@ final class CanvasState {
     var selectedPenColorIndex = 0
     var penWidth: CGFloat = 3.5
     var eraserWidth: CGFloat = 22.0
+    var chatDraft = ""
+    var conversation: [ChatMessage] = []
+    private var captureFingerprint: Int?
 
     static let penSwatches: [PenSwatch] = [
         PenSwatch(
@@ -108,7 +111,7 @@ final class CanvasState {
             return
         }
 
-        capturedImage = drawnImage
+        beginChatCaptureSession(with: drawnImage)
         selectionError = nil
         showChat = true
         activeTool = .pen
@@ -146,6 +149,25 @@ final class CanvasState {
     func dismissChat() {
         showChat = false
         capturedImage = nil
+        captureFingerprint = nil
+    }
+
+    func clearChatSession() {
+        chatDraft = ""
+        conversation = []
+    }
+
+    func appendUserMessage(_ content: String) {
+        conversation.append(ChatMessage(role: .user, content: content))
+    }
+
+    func appendAssistantMessage(_ content: String, thinking: String?) {
+        conversation.append(ChatMessage(role: .assistant, content: content, thinking: thinking))
+    }
+
+    func appendConversationTurn(user: String, assistant: String, thinking: String?) {
+        appendUserMessage(user)
+        appendAssistantMessage(assistant, thinking: thinking)
     }
 
     func dismissError() {
@@ -154,6 +176,32 @@ final class CanvasState {
 
     func closeAccessory() {
         activeAccessory = nil
+    }
+
+    private func beginChatCaptureSession(with image: UIImage) {
+        let newFingerprint = fingerprint(for: image)
+        if let currentFingerprint = captureFingerprint, currentFingerprint != newFingerprint {
+            clearChatSession()
+        }
+
+        capturedImage = image
+        captureFingerprint = newFingerprint
+    }
+
+    private func fingerprint(for image: UIImage) -> Int {
+        let size = image.size
+        var hasher = Hasher()
+        hasher.combine(Int(size.width.rounded()))
+        hasher.combine(Int(size.height.rounded()))
+
+        if let data = image.jpegData(compressionQuality: 0.3) {
+            hasher.combine(data.count)
+            for byte in data.prefix(4096) {
+                hasher.combine(byte)
+            }
+        }
+
+        return hasher.finalize()
     }
 }
 

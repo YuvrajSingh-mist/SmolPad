@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1000000000000000000000D /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000001 /* MarkdownUI */; };
+		A1000000000000000000000E /* SwiftUIMath in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000002 /* SwiftUIMath */; };
 		A10000000000000000000001 /* SmolPadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* SmolPadApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* CanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* CanvasHostView.swift */; };
@@ -43,6 +45,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1000000000000000000000D /* MarkdownUI in Frameworks */,
+				A1000000000000000000000E /* SwiftUIMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +129,10 @@
 			dependencies = (
 			);
 			name = SmolPad;
+			packageProductDependencies = (
+				A11000000000000000000001 /* MarkdownUI */,
+				A11000000000000000000002 /* SwiftUIMath */,
+			);
 			productName = SmolPad;
 			productReference = A2000000000000000000000D /* SmolPad.app */;
 			productType = "com.apple.product-type.application";
@@ -153,6 +161,10 @@
 				Base,
 			);
 			mainGroup = A40000000000000000000001;
+			packageReferences = (
+				A12000000000000000000001 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */,
+			);
 			productRefGroup = A40000000000000000000006 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -392,6 +404,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A12000000000000000000001 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
+		A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swiftui-math";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A11000000000000000000001 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A12000000000000000000001 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+		A11000000000000000000002 /* SwiftUIMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */;
+			productName = SwiftUIMath;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A60000000000000000000001 /* Project object */;
 }

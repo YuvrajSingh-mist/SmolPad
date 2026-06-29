@@ -13,6 +13,7 @@ final class VoiceManager: NSObject {
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
     @ObservationIgnored private var task: SFSpeechRecognitionTask?
     @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private var isFinishing = false
 
     func requestPermission() {
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
@@ -53,6 +54,7 @@ final class VoiceManager: NSObject {
 
         error = nil
         transcript = ""
+        isFinishing = false
 
         do {
             let session = AVAudioSession.sharedInstance()
@@ -84,10 +86,14 @@ final class VoiceManager: NSObject {
                     }
 
                     if let recognitionError {
-                        self.error = recognitionError.localizedDescription
-                        self.stopEngine()
+                        if self.isFinishing || self.isExpectedStopError(recognitionError) {
+                            self.cleanupRecognition()
+                        } else {
+                            self.error = recognitionError.localizedDescription
+                            self.stopEngine()
+                        }
                     } else if result?.isFinal ?? false {
-                        self.stopEngine()
+                        self.cleanupRecognition()
                     }
                 }
             }
@@ -100,21 +106,44 @@ final class VoiceManager: NSObject {
     }
 
     func stop() -> String {
-        let result = transcript
-        stopEngine()
-        return result
+        error = nil
+        isFinishing = true
+        stopAudioCapture()
+        return transcript
     }
 
     private func stopEngine() {
+        stopAudioCapture()
+        task?.cancel()
+        cleanupRecognition()
+    }
+
+    private func stopAudioCapture() {
         request?.endAudio()
         if engine.isRunning {
             engine.stop()
         }
         engine.inputNode.removeTap(onBus: 0)
-        task?.cancel()
-        request = nil
-        task = nil
         isListening = false
         try? AVAudioSession.sharedInstance().setActive(false)
+    }
+
+    private func cleanupRecognition() {
+        task = nil
+        request = nil
+        isListening = false
+        isFinishing = false
+    }
+
+    private func isExpectedStopError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain && nsError.code == 4099 {
+            return true
+        }
+        if nsError.domain == "kAFAssistantErrorDomain" {
+            return true
+        }
+        let message = nsError.localizedDescription.lowercased()
+        return message.contains("cancel") || message.contains("aborted")
     }
 }

@@ -2,12 +2,11 @@ import SwiftUI
 import UIKit
 
 struct ChatPanelView: View {
-    var state: CanvasState
+    @Bindable var state: CanvasState
     var config: AIConfig
     var voiceManager: VoiceManager
 
     @Environment(\.openURL) private var openURL
-    @State private var query = ""
     @State private var response = ""
     @State private var isStreaming = false
     @State private var streamError: String?
@@ -15,7 +14,6 @@ struct ChatPanelView: View {
     @FocusState private var queryFocused: Bool
     @State private var streamingTask: Task<Void, Never>?
     @State private var scrollTick = 0
-    @State private var conversation: [ChatMessage] = []
     @State private var pendingUserQuery: String?
     @State private var thinking = ""
     @State private var rawResponseStream = ""
@@ -37,12 +35,25 @@ struct ChatPanelView: View {
                     HStack {
                         Text("Ask AI")
                             .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.white)
 
                         Spacer()
 
+                        if !state.conversation.isEmpty {
+                            Button("Clear") {
+                                cancelStream()
+                                state.clearChatSession()
+                                response = ""
+                                thinking = ""
+                                streamError = nil
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.96, green: 0.75, blue: 0.44))
+                        }
+
                         Button {
                             queryFocused = false
+                            cancelStream()
                             if voiceManager.isListening {
                                 _ = voiceManager.stop()
                             }
@@ -50,7 +61,7 @@ struct ChatPanelView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 22))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white.opacity(0.6))
                         }
                         .buttonStyle(.plain)
                     }
@@ -75,46 +86,16 @@ struct ChatPanelView: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
                                 // Conversation history
-                                ForEach(Array(conversation.enumerated()), id: \.offset) { _, msg in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(msg.role == "user" ? "You" : "AI")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(msg.role == "user"
-                                                ? Color(red: 0.961, green: 0.651, blue: 0.137)
-                                                : .secondary)
-                                        if msg.role == "assistant",
-                                           let priorThinking = msg.thinking,
-                                           !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            PastThinkingView(thinking: priorThinking)
-                                                .padding(.bottom, 4)
-                                        }
-                                        if msg.role == "assistant",
-                                           let priorThinking = msg.thinking,
-                                           !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                            Divider()
-                                                .background(.secondary.opacity(0.12))
-                                                .padding(.bottom, 8)
-                                        }
-                                        MarkdownTextView(text: msg.content, textColor: .primary)
-                                    }
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
-                                    Divider().background(.secondary.opacity(0.15))
+                                ForEach(Array(state.conversation.enumerated()), id: \.offset) { _, msg in
+                                    MessageBubbleView(message: msg)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 8)
                                 }
 
                                 if let pendingUserQuery {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("You")
-                                            .font(.system(size: 11, weight: .semibold))
-                                            .foregroundStyle(Color(red: 0.961, green: 0.651, blue: 0.137))
-                                        MarkdownTextView(text: pendingUserQuery, textColor: .primary)
-                                    }
+                                    MessageBubbleView(message: ChatMessage(role: .user, content: pendingUserQuery))
                                     .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
-
-                                    if isStreaming {
-                                        Divider().background(.secondary.opacity(0.15))
-                                    }
+                                    .padding(.vertical, 8)
                                 }
 
                                 if let streamError {
@@ -133,6 +114,7 @@ struct ChatPanelView: View {
                                             .font(.system(size: 14, weight: .semibold))
                                         }
                                     }
+                                    .foregroundStyle(.white)
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
                                 } else if let voiceError = voiceManager.error {
@@ -142,42 +124,48 @@ struct ChatPanelView: View {
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 10)
                                 } else if !thinking.isEmpty || !response.isEmpty {
-                                    if !thinking.isEmpty {
-                                        ThinkingSectionView(
-                                            thinking: thinking,
-                                            isExpanded: $isThinkingExpanded,
-                                            isStreaming: isStreaming,
-                                            isLive: true
-                                        )
-                                        .padding(.horizontal, 20)
-                                    }
-
-                                    if !response.isEmpty {
+                                    Group {
                                         if !thinking.isEmpty {
-                                            Divider()
-                                                .background(.secondary.opacity(0.12))
-                                                .padding(.horizontal, 20)
-                                                .padding(.top, 6)
+                                            ThinkingSectionView(
+                                                thinking: thinking,
+                                                isExpanded: $isThinkingExpanded,
+                                                isStreaming: isStreaming,
+                                                isLive: true
+                                            )
                                         }
-                                        MarkdownTextView(text: response, textColor: .primary, baseFontSize: 15, spacing: 7)
-                                            .padding(.horizontal, 20)
-                                            .padding(.top, thinking.isEmpty ? 10 : 12)
-                                            .padding(.bottom, 10)
+
+                                        if !response.isEmpty {
+                                            MarkdownTextView(text: response, textColor: .white, baseFontSize: 16, spacing: 10)
+                                                .padding(.top, thinking.isEmpty ? 0 : 6)
+                                        }
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                            .fill(Color.white.opacity(0.065))
+                                            .overlay {
+                                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                                            }
+                                    )
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 8)
                                 } else if isStreaming {
                                     HStack(spacing: 8) {
                                         ProgressView()
                                             .scaleEffect(0.8)
                                         Text("AI is thinking...")
                                             .font(.system(size: 14))
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(.white.opacity(0.72))
                                     }
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 12)
                                 } else if !isStreaming {
                                     Text("Your answer will appear here.")
                                         .font(.system(size: 15))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(.white.opacity(0.55))
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 10)
                                 }
@@ -200,13 +188,13 @@ struct ChatPanelView: View {
                     Divider().background(.secondary.opacity(0.15))
 
                     HStack(spacing: 10) {
-                        TextField("Ask about this...", text: $query)
+                        TextField("Ask about this...", text: $state.chatDraft)
                             .font(.system(size: 15))
-                            .foregroundStyle(.primary)
-                            .tint(.accentColor)
+                            .foregroundStyle(.white)
+                            .tint(Color(red: 0.96, green: 0.75, blue: 0.44))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .background(.primary.opacity(0.06))
+                            .background(Color.white.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .textInputAutocapitalization(.sentences)
                             .submitLabel(.send)
@@ -216,21 +204,21 @@ struct ChatPanelView: View {
                             }
                             .onChange(of: voiceManager.transcript) { _, transcript in
                                 if !transcript.isEmpty {
-                                    query = transcript
+                                    state.chatDraft = transcript
                                 }
                             }
 
                         Button {
                             queryFocused = false
                             if voiceManager.isListening {
-                                query = voiceManager.stop()
+                                state.chatDraft = voiceManager.stop()
                             } else {
                                 voiceManager.start()
                             }
                         } label: {
                             Image(systemName: voiceManager.isListening ? "mic.fill" : "mic")
                                 .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(voiceManager.isListening ? .red : .secondary)
+                                .foregroundStyle(voiceManager.isListening ? .red : .white.opacity(0.7))
                                 .frame(width: 38, height: 38)
                                 .scaleEffect(voiceManager.isListening ? 1.08 : 1.0)
                                 .animation(
@@ -258,8 +246,8 @@ struct ChatPanelView: View {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .font(.system(size: 32))
                                     .foregroundStyle(
-                                        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                            ? .secondary.opacity(0.5)
+                                        state.chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                            ? .white.opacity(0.28)
                                             : Color(red: 0.961, green: 0.651, blue: 0.137)
                                     )
                                     .frame(width: 38, height: 38)
@@ -272,9 +260,22 @@ struct ChatPanelView: View {
                     .padding(.bottom, geometry.safeAreaInsets.bottom > 0 ? geometry.safeAreaInsets.bottom : 12)
                 }
                 .frame(height: geometry.size.height * 0.62)
-                .background(.regularMaterial)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.16, green: 0.17, blue: 0.20),
+                            Color(red: 0.11, green: 0.12, blue: 0.14)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .clipShape(RoundedRectangle(cornerRadius: 20))
-                .shadow(color: .black.opacity(0.12), radius: 16, y: -4)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.26), radius: 22, y: -8)
                 .ignoresSafeArea(edges: .bottom)
             }
         }
@@ -287,21 +288,15 @@ struct ChatPanelView: View {
     private func sendQuery() {
         guard !isStreaming else { return }
 
-        let userQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userQuery = state.chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userQuery.isEmpty else { return }
 
-        response = ""
-        thinking = ""
-        rawResponseStream = ""
-        streamedReasoning = ""
-        isThinkingExpanded = true
-        streamError = nil
-        showsLocalNetworkSettings = false
+        resetStreamingPresentation()
         scrollTick = 0
         isStreaming = true
         queryFocused = false
         pendingUserQuery = userQuery
-        query = ""
+        state.chatDraft = ""
         scrollTick &+= 1
 
         let task = Task {
@@ -310,58 +305,34 @@ struct ChatPanelView: View {
                     image: state.capturedImage,
                     query: userQuery,
                     config: config,
-                    history: conversation + [ChatMessage(role: "user", content: userQuery)]
+                    history: state.conversation
                 )
                 var chunkCount = 0
                 for try await chunk in stream {
                     if Task.isCancelled { break }
                     await MainActor.run {
-                        if chunk.isThinking {
-                            streamedReasoning += chunk.text
-                        } else {
-                            rawResponseStream += chunk.text
-                        }
-                        reconcileStreamBuffers()
-                        chunkCount += 1
-                        if chunkCount % 3 == 0 {
-                            scrollTick &+= 1
-                        }
+                        present(chunk: chunk, chunkCount: &chunkCount)
                     }
                 }
                 if Task.isCancelled {
                     await MainActor.run {
-                        if !response.isEmpty {
-                            response += "\n\n— Cancelled —"
-                        }
+                        finishCancellation()
                     }
                 } else {
-                    // Save turn to conversation history
                     await MainActor.run {
-                        conversation.append(ChatMessage(role: "user", content: userQuery))
-                        conversation.append(ChatMessage(role: "assistant", content: response, thinking: thinking))
-                        pendingUserQuery = nil
-                        response = ""
-                        thinking = ""
-                        rawResponseStream = ""
-                        streamedReasoning = ""
-                        scrollTick &+= 1
+                        commitCompletedTurn(for: userQuery)
                     }
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    streamError = error.localizedDescription
-                    if let pendingUserQuery {
-                        conversation.append(ChatMessage(role: "user", content: pendingUserQuery))
-                        self.pendingUserQuery = nil
+                if let aiError = error as? AIError, case .cancelled = aiError {
+                    await MainActor.run {
+                        finishCancellation()
                     }
-                    showsLocalNetworkSettings = {
-                        guard let aiError = error as? AIError else { return false }
-                        if case .localNetworkDenied = aiError {
-                            return true
-                        }
-                        return false
-                    }()
+                    return
+                }
+                await MainActor.run {
+                    present(error: error)
                 }
             }
 
@@ -377,10 +348,17 @@ struct ChatPanelView: View {
     private func cancelStream() {
         streamingTask?.cancel()
         streamingTask = nil
+        isStreaming = false
+        finishCancellation()
+    }
+
+    private func finishCancellation() {
         if let pendingUserQuery {
-            conversation.append(ChatMessage(role: "user", content: pendingUserQuery))
+            state.appendUserMessage(pendingUserQuery)
             self.pendingUserQuery = nil
         }
+        resetStreamingPresentation()
+        scrollTick &+= 1
     }
 
     private func reconcileStreamBuffers() {
@@ -438,6 +416,105 @@ struct ChatPanelView: View {
 
         return (thinking, response)
     }
+
+    private func resetStreamingPresentation() {
+        response = ""
+        thinking = ""
+        rawResponseStream = ""
+        streamedReasoning = ""
+        isThinkingExpanded = true
+        streamError = nil
+        showsLocalNetworkSettings = false
+    }
+
+    private func present(chunk: StreamChunk, chunkCount: inout Int) {
+        if chunk.isThinking {
+            streamedReasoning += chunk.text
+        } else {
+            rawResponseStream += chunk.text
+        }
+        reconcileStreamBuffers()
+        chunkCount += 1
+        if chunkCount % 3 == 0 {
+            scrollTick &+= 1
+        }
+    }
+
+    private func commitCompletedTurn(for userQuery: String) {
+        state.appendConversationTurn(user: userQuery, assistant: response, thinking: thinking)
+        pendingUserQuery = nil
+        response = ""
+        thinking = ""
+        rawResponseStream = ""
+        streamedReasoning = ""
+        scrollTick &+= 1
+    }
+
+    private func present(error: Error) {
+        streamError = error.localizedDescription
+        if let pendingUserQuery {
+            state.appendUserMessage(pendingUserQuery)
+            self.pendingUserQuery = nil
+        }
+        showsLocalNetworkSettings = {
+            guard let aiError = error as? AIError else { return false }
+            if case .localNetworkDenied = aiError {
+                return true
+            }
+            return false
+        }()
+    }
+}
+
+private struct MessageBubbleView: View {
+    let message: ChatMessage
+
+    var body: some View {
+        let isUser = message.role == .user
+
+        VStack(alignment: .leading, spacing: 10) {
+            Text(message.role.displayName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(
+                    isUser
+                        ? Color(red: 0.96, green: 0.75, blue: 0.44)
+                        : Color.white.opacity(0.52)
+                )
+
+            if message.role == .assistant,
+               let priorThinking = message.thinking,
+               !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                PastThinkingView(thinking: priorThinking)
+            }
+
+            MarkdownTextView(
+                text: message.content,
+                textColor: .white,
+                baseFontSize: isUser ? 15 : 16,
+                spacing: isUser ? 8 : 10
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    isUser
+                        ? Color(red: 0.96, green: 0.75, blue: 0.44).opacity(0.12)
+                        : Color.white.opacity(0.065)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(
+                            isUser
+                                ? Color(red: 0.96, green: 0.75, blue: 0.44).opacity(0.24)
+                                : Color.white.opacity(0.08),
+                            lineWidth: 1
+                        )
+                }
+        )
+    }
 }
 
 private struct PastThinkingView: View {
@@ -465,18 +542,18 @@ private struct ThinkingSectionView: View {
             VStack(alignment: .leading, spacing: 12) {
                 MarkdownTextView(
                     text: thinking,
-                    textColor: .secondary,
+                    textColor: Color.white.opacity(0.76),
                     baseFontSize: 13,
                     spacing: 5
                 )
                 if isStreaming && isLive {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(.secondary.opacity(0.7))
+                            .fill(Color.white.opacity(0.55))
                             .frame(width: 7, height: 7)
                         Text("Loading")
                             .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.white.opacity(0.6))
                     }
                 }
             }
@@ -486,18 +563,21 @@ private struct ThinkingSectionView: View {
             HStack(spacing: 8) {
                 Image(systemName: "brain.head.profile")
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary.opacity(0.85))
+                    .foregroundStyle(Color.white.opacity(0.7))
                 Text(isStreaming && isLive ? "Thinking..." : "Thinking")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.white.opacity(0.65))
             }
         }
-        .padding(.vertical, 8)
-        .background(alignment: .leading) {
-            Rectangle()
-                .fill(.secondary.opacity(0.16))
-                .frame(width: 2)
-                .padding(.vertical, 4)
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.black.opacity(0.14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                }
+        )
     }
 }

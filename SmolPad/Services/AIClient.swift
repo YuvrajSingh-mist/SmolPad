@@ -7,6 +7,7 @@ enum AIError: LocalizedError {
     case invalidURL
     case localNetworkDenied
     case timedOut(AIProvider)
+    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -21,19 +22,39 @@ enum AIError: LocalizedError {
             case .mlx: "Local MLX is still thinking. Try again with a smaller selected area, or check that the MLX server is running."
             case .claude, .openai: "The request timed out."
             }
+        case .cancelled:
+            "The request was cancelled."
         }
     }
 }
 
 struct ChatMessage: Codable {
-    let role: String
+    enum Role: String, Codable {
+        case user
+        case assistant
+        case system
+
+        var displayName: String {
+            switch self {
+            case .user: "You"
+            case .assistant: "AI"
+            case .system: "System"
+            }
+        }
+    }
+
+    let role: Role
     let content: String
     let thinking: String?
 
-    init(role: String, content: String, thinking: String? = nil) {
+    init(role: Role, content: String, thinking: String? = nil) {
         self.role = role
         self.content = content
         self.thinking = thinking
+    }
+
+    init(role: String, content: String, thinking: String? = nil) {
+        self.init(role: Role(rawValue: role) ?? .user, content: content, thinking: thinking)
     }
 }
 
@@ -73,9 +94,9 @@ struct AIClient {
         let request = try buildRequest(b64: b64, prompt: prompt, config: config, history: history)
 
         return AsyncThrowingStream { continuation in
-            Task {
+            let session = session(for: config.provider)
+            let worker = Task {
                 do {
-                    let session = session(for: config.provider)
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
                         continuation.finish(throwing: AIError.badStatus(0))
@@ -94,6 +115,8 @@ struct AIClient {
                     }
 
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: AIError.cancelled)
                 } catch {
                     let nsError = error as NSError
                     if nsError.code == NSURLErrorTimedOut {
@@ -105,12 +128,17 @@ struct AIClient {
                     }
                 }
             }
+
+            continuation.onTermination = { _ in
+                worker.cancel()
+                session.invalidateAndCancel()
+            }
         }
     }
 
     private static func session(for provider: AIProvider) -> URLSession {
         let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
+        configuration.waitsForConnectivity = false
         switch provider {
         case .ollama:
             configuration.timeoutIntervalForRequest = 360
@@ -214,11 +242,26 @@ struct AIClient {
             guard !config.mlxURL.isEmpty else { throw AIError.missingConfig }
             urlString = "\(config.mlxURL)/v1/chat/completions"
             headers = ["Content-Type": "application/json"]
+            let historyContext = buildHistoryContext(from: history)
             let systemText: String
             if b64 != nil {
-                systemText = "You are a helpful AI assistant. Read the handwritten note carefully. If it contains math, first transcribe the equation exactly as written, then solve it step by step with clear reasoning, and end with a boxed final answer. If it is not math, answer the user's question directly and thoroughly."
+                systemText = """
+                You are a helpful AI assistant in an ongoing multi-turn conversation about the same selected handwritten note.
+                Read the handwritten note carefully. If it contains math, transcribe the expression exactly as written, then solve it step by step with clear reasoning.
+                Use the prior conversation to answer follow-up questions about what the user previously asked, what you previously answered, or what is shown in the selected note.
+                If the user asks about the previous turn, rely on the conversation history instead of acting like this is a fresh chat.
+                Keep formatting elegant and easy to scan with short paragraphs, bullets when useful, and math written cleanly.
+                Prefer plain readable math notation over raw LaTeX. Only use LaTeX when it is genuinely necessary.
+                \(historyContext.isEmpty ? "" : "\nConversation so far:\n\(historyContext)")
+                """
             } else {
-                systemText = "You are a helpful AI assistant. Think step by step, explain your reasoning clearly, and provide accurate, thorough answers to the user's questions."
+                systemText = """
+                You are a helpful AI assistant in an ongoing multi-turn conversation.
+                Use the prior conversation to answer follow-up questions about what the user previously asked or what you previously answered.
+                Think step by step, explain your reasoning clearly, and provide accurate, well-formatted answers.
+                Prefer plain readable math notation over raw LaTeX. Only use LaTeX when it is genuinely necessary.
+                \(historyContext.isEmpty ? "" : "\nConversation so far:\n\(historyContext)")
+                """
             }
 
             var messages: [[String: Any]] = [
@@ -227,7 +270,7 @@ struct AIClient {
 
             // Add conversation history (text-only)
             for msg in history {
-                messages.append(["role": msg.role, "content": [["type": "text", "text": msg.content]]])
+                messages.append(["role": msg.role.rawValue, "content": [["type": "text", "text": msg.content]]])
             }
 
             // Current user message
@@ -235,7 +278,7 @@ struct AIClient {
             if let b64 {
                 userContent.append(["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(b64)"]])
             }
-            userContent.append(["type": "text", "text": prompt])
+            userContent.append(["type": "text", "text": buildContextualPrompt(prompt: prompt, history: history, hasAttachedImage: b64 != nil)])
             messages.append(["role": "user", "content": userContent])
 
             body = [
@@ -286,28 +329,35 @@ struct AIClient {
     private static func parseLine(_ line: String, provider: AIProvider) -> StreamChunk? {
         switch provider {
         case .claude:
-            guard line.hasPrefix("data: "),
-                  let data = line.dropFirst(6).data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            guard let json = streamJSONObject(from: line),
                   let delta = json["delta"] as? [String: Any],
                   let text = delta["text"] as? String
             else { return nil }
             return StreamChunk(text: text)
 
         case .openai, .mlx:
-            guard line.hasPrefix("data: "),
-                  !line.hasPrefix("data: [DONE]"),
-                  let data = line.dropFirst(6).data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choices = json["choices"] as? [[String: Any]],
-                  let delta = choices.first?["delta"] as? [String: Any]
+            guard let json = streamJSONObject(from: line),
+                  let choices = json["choices"] as? [[String: Any]]
             else { return nil }
+
+            let choice = choices.first ?? [:]
+            let delta = choice["delta"] as? [String: Any] ?? [:]
 
             if let reasoning = extractReasoning(from: delta), !reasoning.isEmpty {
                 return StreamChunk(text: reasoning, isThinking: true)
             }
 
             if let text = extractContent(from: delta), !text.isEmpty {
+                return StreamChunk(text: text)
+            }
+
+            if let message = choice["message"] as? [String: Any],
+               let text = extractContent(from: message),
+               !text.isEmpty {
+                return StreamChunk(text: text)
+            }
+
+            if let text = choice["text"] as? String, !text.isEmpty {
                 return StreamChunk(text: text)
             }
 
@@ -327,6 +377,29 @@ struct AIClient {
             }
             return nil
         }
+    }
+
+    private static func streamJSONObject(from line: String) -> [String: Any]? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("event:"),
+              trimmed != "data: [DONE]",
+              trimmed != "[DONE]"
+        else { return nil }
+
+        let payload: String
+        if trimmed.hasPrefix("data: ") {
+            payload = String(trimmed.dropFirst(6))
+        } else if trimmed.hasPrefix("data:") {
+            payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+        } else {
+            payload = trimmed
+        }
+
+        guard let data = payload.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json
     }
 
     private static func isLocalNetworkDenied(_ error: NSError) -> Bool {
@@ -374,5 +447,41 @@ struct AIClient {
             return nil
         }
         .joined()
+    }
+
+    private static func buildHistoryContext(from history: [ChatMessage], limit: Int = 6) -> String {
+        history.suffix(limit).map { message in
+            let role: String
+            switch message.role {
+            case .assistant: role = "Assistant"
+            case .user: role = "User"
+            case .system: role = "System"
+            }
+            let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { return nil }
+            return "\(role): \(content)"
+        }
+        .compactMap { $0 }
+        .joined(separator: "\n")
+    }
+
+    private static func buildContextualPrompt(
+        prompt: String,
+        history: [ChatMessage],
+        hasAttachedImage: Bool
+    ) -> String {
+        let historyContext = buildHistoryContext(from: history)
+        var sections: [String] = []
+
+        if hasAttachedImage {
+            sections.append("The attached image is the same selected note for this chat unless the user selects a new region.")
+        }
+
+        if !historyContext.isEmpty {
+            sections.append("Recent conversation:\n\(historyContext)")
+        }
+
+        sections.append("Current user request:\n\(prompt)")
+        return sections.joined(separator: "\n\n")
     }
 }
