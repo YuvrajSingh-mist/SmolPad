@@ -5,6 +5,7 @@ struct ContentView: View {
     @State private var aiConfig = AIConfig()
     @State private var voiceManager = VoiceManager()
     @State private var showSettings = false
+    @State private var backendStatus = BackendStatusSnapshot(label: "Connect: MLX", isConnected: false)
 
     var body: some View {
         ZStack {
@@ -49,6 +50,17 @@ struct ContentView: View {
             }
 
             VStack {
+                HStack {
+                    Spacer()
+                    backendStatusPill
+                }
+                .padding(.top, 18)
+                .padding(.horizontal, 20)
+
+                Spacer()
+            }
+
+            VStack {
                 Spacer()
 
                 HStack {
@@ -73,7 +85,7 @@ struct ContentView: View {
                                 .font(.system(size: 20, weight: .medium))
                                 .foregroundStyle(Color(white: 0.28))
                                 .frame(width: 44, height: 44)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 14)
                                         .strokeBorder(Color(white: 0.0, opacity: 0.08), lineWidth: 0.5)
@@ -130,6 +142,90 @@ struct ContentView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: canvasState.selectionError)
         .sheet(isPresented: $showSettings) {
             SettingsView(config: aiConfig)
+        }
+        .task(id: backendStatusTaskKey) {
+            while !Task.isCancelled {
+                let snapshot = await BackendStatusService.check(config: aiConfig)
+                await MainActor.run {
+                    backendStatus = snapshot
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private var backendStatusTaskKey: String {
+        [
+            aiConfig.provider.rawValue,
+            aiConfig.mlxURL,
+            aiConfig.ollamaURL,
+            aiConfig.apiKey
+        ].joined(separator: "|")
+    }
+
+    private var backendStatusPill: some View {
+        let tint = backendStatus.isConnected
+            ? Color(red: 0.11, green: 0.63, blue: 0.31)
+            : Color(red: 0.83, green: 0.17, blue: 0.17)
+
+        return HStack(spacing: 8) {
+            Circle()
+                .fill(tint)
+                .frame(width: 10, height: 10)
+                .shadow(color: tint.opacity(0.85), radius: 8)
+
+            Text(backendStatus.label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(white: 0.24))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white, in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(tint.opacity(0.28), lineWidth: 1)
+        }
+        .shadow(color: tint.opacity(backendStatus.isConnected ? 0.18 : 0.12), radius: 12, y: 3)
+    }
+}
+
+private struct BackendStatusSnapshot {
+    let label: String
+    let isConnected: Bool
+}
+
+private enum BackendStatusService {
+    static func check(config: AIConfig) async -> BackendStatusSnapshot {
+        switch config.provider {
+        case .mlx:
+            let ok = await isReachable(urlString: "\(config.mlxURL)/v1/models")
+            return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
+        case .ollama:
+            let ok = await isReachable(urlString: "\(config.ollamaURL)/api/tags")
+            return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
+        case .openai, .claude:
+            let ok = !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
+        }
+    }
+
+    private static func isReachable(urlString: String) async -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 4
+
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 4
+        configuration.timeoutIntervalForResource = 6
+        configuration.waitsForConnectivity = false
+
+        do {
+            let (_, response) = try await URLSession(configuration: configuration).data(for: request)
+            guard let http = response as? HTTPURLResponse else { return false }
+            return (200..<300).contains(http.statusCode)
+        } catch {
+            return false
         }
     }
 }

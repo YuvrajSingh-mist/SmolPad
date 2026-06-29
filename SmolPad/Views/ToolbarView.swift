@@ -59,7 +59,7 @@ struct ToolbarView: View {
             .frame(width: 52)
             .background {
                 RoundedRectangle(cornerRadius: 26)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.white)
                     .overlay {
                         RoundedRectangle(cornerRadius: 26)
                             .strokeBorder(Color(white: 0.0, opacity: 0.08), lineWidth: 0.5)
@@ -116,7 +116,7 @@ struct ToolbarView: View {
         .frame(width: 226)
         .background {
             RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white)
                 .overlay {
                     RoundedRectangle(cornerRadius: 16)
                         .strokeBorder(Color(white: 0.0, opacity: 0.08), lineWidth: 0.5)
@@ -148,7 +148,7 @@ struct ToolbarView: View {
         .frame(width: 226)
         .background {
             RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white)
                 .overlay {
                     RoundedRectangle(cornerRadius: 16)
                         .strokeBorder(Color(white: 0.0, opacity: 0.08), lineWidth: 0.5)
