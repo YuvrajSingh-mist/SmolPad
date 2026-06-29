@@ -14,11 +14,13 @@ struct CanvasHostView: UIViewRepresentable {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.backgroundColor = .clear
         scrollView.bouncesZoom = true
+        scrollView.overrideUserInterfaceStyle = .light
 
         let canvas = state.canvasView
         canvas.removeFromSuperview()
         canvas.frame = CGRect(x: 0, y: 0, width: 2048, height: 4096)
         canvas.backgroundColor = .clear
+        canvas.overrideUserInterfaceStyle = .light
         canvas.drawingPolicy = .anyInput
         canvas.delegate = context.coordinator
         canvas.tool = PKInkingTool(.pen, color: state.selectedPenColor, width: state.penWidth)
@@ -39,6 +41,8 @@ struct CanvasHostView: UIViewRepresentable {
 
     func updateUIView(_ scrollView: UIScrollView, context: Context) {
         let canvas = state.canvasView
+        scrollView.overrideUserInterfaceStyle = .light
+        canvas.overrideUserInterfaceStyle = .light
         scrollView.isScrollEnabled = state.activeTool == .hand
         canvas.isUserInteractionEnabled = !state.activeTool.isSelection
 
@@ -78,10 +82,12 @@ struct CanvasHostView: UIViewRepresentable {
         }
 
         @objc func switchToHandMode() {
+            state.closeAccessory()
             state.activeTool = .hand
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            state.closeAccessory()
             if state.activeTool == .hand {
                 state.activeTool = .pen
             }

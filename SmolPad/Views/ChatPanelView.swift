@@ -16,6 +16,11 @@ struct ChatPanelView: View {
     @State private var streamingTask: Task<Void, Never>?
     @State private var scrollTick = 0
     @State private var conversation: [ChatMessage] = []
+    @State private var pendingUserQuery: String?
+    @State private var thinking = ""
+    @State private var rawResponseStream = ""
+    @State private var streamedReasoning = ""
+    @State private var isThinkingExpanded = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -77,11 +82,39 @@ struct ChatPanelView: View {
                                             .foregroundStyle(msg.role == "user"
                                                 ? Color(red: 0.961, green: 0.651, blue: 0.137)
                                                 : .secondary)
+                                        if msg.role == "assistant",
+                                           let priorThinking = msg.thinking,
+                                           !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            PastThinkingView(thinking: priorThinking)
+                                                .padding(.bottom, 4)
+                                        }
+                                        if msg.role == "assistant",
+                                           let priorThinking = msg.thinking,
+                                           !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                            Divider()
+                                                .background(.secondary.opacity(0.12))
+                                                .padding(.bottom, 8)
+                                        }
                                         MarkdownTextView(text: msg.content, textColor: .primary)
                                     }
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 10)
                                     Divider().background(.secondary.opacity(0.15))
+                                }
+
+                                if let pendingUserQuery {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("You")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(Color(red: 0.961, green: 0.651, blue: 0.137))
+                                        MarkdownTextView(text: pendingUserQuery, textColor: .primary)
+                                    }
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+
+                                    if isStreaming {
+                                        Divider().background(.secondary.opacity(0.15))
+                                    }
                                 }
 
                                 if let streamError {
@@ -108,10 +141,39 @@ struct ChatPanelView: View {
                                         .foregroundStyle(.red)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 10)
-                                } else if !response.isEmpty {
-                                    MarkdownTextView(text: response, textColor: .primary)
+                                } else if !thinking.isEmpty || !response.isEmpty {
+                                    if !thinking.isEmpty {
+                                        ThinkingSectionView(
+                                            thinking: thinking,
+                                            isExpanded: $isThinkingExpanded,
+                                            isStreaming: isStreaming,
+                                            isLive: true
+                                        )
                                         .padding(.horizontal, 20)
-                                        .padding(.vertical, 10)
+                                    }
+
+                                    if !response.isEmpty {
+                                        if !thinking.isEmpty {
+                                            Divider()
+                                                .background(.secondary.opacity(0.12))
+                                                .padding(.horizontal, 20)
+                                                .padding(.top, 6)
+                                        }
+                                        MarkdownTextView(text: response, textColor: .primary, baseFontSize: 15, spacing: 7)
+                                            .padding(.horizontal, 20)
+                                            .padding(.top, thinking.isEmpty ? 10 : 12)
+                                            .padding(.bottom, 10)
+                                    }
+                                } else if isStreaming {
+                                    HStack(spacing: 8) {
+                                        ProgressView()
+                                            .scaleEffect(0.8)
+                                        Text("AI is thinking...")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
                                 } else if !isStreaming {
                                     Text("Your answer will appear here.")
                                         .font(.system(size: 15))
@@ -229,12 +291,18 @@ struct ChatPanelView: View {
         guard !userQuery.isEmpty else { return }
 
         response = ""
+        thinking = ""
+        rawResponseStream = ""
+        streamedReasoning = ""
+        isThinkingExpanded = true
         streamError = nil
         showsLocalNetworkSettings = false
         scrollTick = 0
         isStreaming = true
         queryFocused = false
+        pendingUserQuery = userQuery
         query = ""
+        scrollTick &+= 1
 
         let task = Task {
             do {
@@ -242,13 +310,18 @@ struct ChatPanelView: View {
                     image: state.capturedImage,
                     query: userQuery,
                     config: config,
-                    history: conversation
+                    history: conversation + [ChatMessage(role: "user", content: userQuery)]
                 )
                 var chunkCount = 0
                 for try await chunk in stream {
                     if Task.isCancelled { break }
                     await MainActor.run {
-                        response += chunk
+                        if chunk.isThinking {
+                            streamedReasoning += chunk.text
+                        } else {
+                            rawResponseStream += chunk.text
+                        }
+                        reconcileStreamBuffers()
                         chunkCount += 1
                         if chunkCount % 3 == 0 {
                             scrollTick &+= 1
@@ -265,8 +338,12 @@ struct ChatPanelView: View {
                     // Save turn to conversation history
                     await MainActor.run {
                         conversation.append(ChatMessage(role: "user", content: userQuery))
-                        conversation.append(ChatMessage(role: "assistant", content: response))
+                        conversation.append(ChatMessage(role: "assistant", content: response, thinking: thinking))
+                        pendingUserQuery = nil
                         response = ""
+                        thinking = ""
+                        rawResponseStream = ""
+                        streamedReasoning = ""
                         scrollTick &+= 1
                     }
                 }
@@ -274,6 +351,10 @@ struct ChatPanelView: View {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     streamError = error.localizedDescription
+                    if let pendingUserQuery {
+                        conversation.append(ChatMessage(role: "user", content: pendingUserQuery))
+                        self.pendingUserQuery = nil
+                    }
                     showsLocalNetworkSettings = {
                         guard let aiError = error as? AIError else { return false }
                         if case .localNetworkDenied = aiError {
@@ -296,5 +377,127 @@ struct ChatPanelView: View {
     private func cancelStream() {
         streamingTask?.cancel()
         streamingTask = nil
+        if let pendingUserQuery {
+            conversation.append(ChatMessage(role: "user", content: pendingUserQuery))
+            self.pendingUserQuery = nil
+        }
+    }
+
+    private func reconcileStreamBuffers() {
+        let parsed = Self.splitThinkingAndResponse(from: rawResponseStream)
+        let combinedThinking = [streamedReasoning, parsed.thinking]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: streamedReasoning.isEmpty || parsed.thinking.isEmpty ? "" : "\n\n")
+
+        thinking = combinedThinking
+        response = parsed.response
+    }
+
+    private static func splitThinkingAndResponse(from raw: String) -> (thinking: String, response: String) {
+        guard !raw.isEmpty else { return ("", "") }
+
+        var remaining = raw
+        var thinkingParts: [String] = []
+        var responseParts: [String] = []
+
+        while let openRange = remaining.range(of: "<think>") {
+            let before = remaining[..<openRange.lowerBound]
+            if !before.isEmpty {
+                responseParts.append(String(before))
+            }
+
+            let afterOpen = remaining[openRange.upperBound...]
+            if let closeRange = afterOpen.range(of: "</think>") {
+                let thought = afterOpen[..<closeRange.lowerBound]
+                if !thought.isEmpty {
+                    thinkingParts.append(String(thought))
+                }
+                remaining = String(afterOpen[closeRange.upperBound...])
+            } else {
+                let unfinished = afterOpen.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !unfinished.isEmpty {
+                    thinkingParts.append(unfinished)
+                }
+                remaining = ""
+                break
+            }
+        }
+
+        if !remaining.isEmpty {
+            responseParts.append(remaining)
+        }
+
+        let thinking = thinkingParts
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let response = responseParts
+            .joined()
+            .replacingOccurrences(of: "<think>", with: "")
+            .replacingOccurrences(of: "</think>", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (thinking, response)
+    }
+}
+
+private struct PastThinkingView: View {
+    let thinking: String
+    @State private var isExpanded = false
+
+    var body: some View {
+        ThinkingSectionView(
+            thinking: thinking,
+            isExpanded: $isExpanded,
+            isStreaming: false,
+            isLive: false
+        )
+    }
+}
+
+private struct ThinkingSectionView: View {
+    let thinking: String
+    @Binding var isExpanded: Bool
+    let isStreaming: Bool
+    let isLive: Bool
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                MarkdownTextView(
+                    text: thinking,
+                    textColor: .secondary,
+                    baseFontSize: 13,
+                    spacing: 5
+                )
+                if isStreaming && isLive {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(.secondary.opacity(0.7))
+                            .frame(width: 7, height: 7)
+                        Text("Loading")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary.opacity(0.85))
+                Text(isStreaming && isLive ? "Thinking..." : "Thinking")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 8)
+        .background(alignment: .leading) {
+            Rectangle()
+                .fill(.secondary.opacity(0.16))
+                .frame(width: 2)
+                .padding(.vertical, 4)
+        }
     }
 }

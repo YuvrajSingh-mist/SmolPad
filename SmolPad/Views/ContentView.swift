@@ -69,18 +69,19 @@ struct ContentView: View {
                         Button {
                             canvasState.showChat = true
                         } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(red: 0.961, green: 0.651, blue: 0.137))
-                                    .frame(width: 48, height: 48)
-                                Image(systemName: "bubble.left.and.bubble.right.fill")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundStyle(.white)
-                            }
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundStyle(Color(white: 0.28))
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14)
+                                        .strokeBorder(Color(white: 0.0, opacity: 0.08), lineWidth: 0.5)
+                                }
                         }
                         .shadow(color: .black.opacity(0.15), radius: 8, y: 3)
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 100)
+                        .padding(.trailing, 92)
+                        .padding(.bottom, 32)
                     }
                 }
             }

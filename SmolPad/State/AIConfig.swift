@@ -41,35 +41,15 @@ final class AIConfig {
     init() {
         let defaults = UserDefaults.standard
         let savedProviderRaw = defaults.string(forKey: Key.provider.rawValue) ?? ""
-        let savedProvider = AIProvider(rawValue: savedProviderRaw) ?? .mlx
-        let savedModel = defaults.string(forKey: Key.model.rawValue) ?? ""
-        let shouldMigrateToMLX = savedProvider == .ollama && (
-            savedModel.isEmpty
-            || savedModel.hasPrefix("qwen3-vl")
-            || savedModel.hasPrefix("llava")
-            || savedModel == "gemma3:4b"
-            || savedModel.hasPrefix("local-")
-        )
-        provider = shouldMigrateToMLX ? .mlx : savedProvider
+        provider = AIProvider(rawValue: savedProviderRaw) ?? .mlx
         apiKey = defaults.string(forKey: Key.apiKey.rawValue) ?? ""
         let savedOllamaURL = defaults.string(forKey: Key.ollamaURL.rawValue) ?? ""
         ollamaURL = Self.normalizedServerURL(savedOllamaURL, port: 11434)
         let savedMLXURL = defaults.string(forKey: Key.mlxURL.rawValue) ?? ""
         mlxURL = Self.normalizedServerURL(savedMLXURL, port: 8080)
-        if shouldMigrateToMLX {
-            model = AIProvider.mlx.defaultModel
-        } else if savedProvider == .mlx || (
-            savedProvider == .ollama && (
-                savedModel.hasPrefix("qwen3-vl")
-                || savedModel.hasPrefix("llava")
-                || savedModel == "gemma3:4b"
-                || savedModel.hasPrefix("local-")
-            )
-        ) {
-            model = savedProvider.defaultModel
-        } else {
-            model = savedModel.isEmpty ? savedProvider.defaultModel : savedModel
-        }
+        let savedModel = defaults.string(forKey: Key.model.rawValue) ?? ""
+        let defaultModel = AIProvider.mlx.defaultModel
+        model = savedModel.isEmpty ? defaultModel : savedModel
 
         if provider.rawValue != savedProviderRaw
             || savedOllamaURL != ollamaURL

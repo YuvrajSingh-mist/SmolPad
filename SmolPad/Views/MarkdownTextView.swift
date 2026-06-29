@@ -10,11 +10,13 @@ import SwiftUI
 struct MarkdownTextView: View {
     let text: String
     var textColor: Color = .white
+    var baseFontSize: CGFloat = 15
+    var spacing: CGFloat = 6
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: spacing) {
             ForEach(BlockParser.parse(text)) { block in
-                BlockView(block: block, textColor: textColor)
+                BlockView(block: block, textColor: textColor, baseFontSize: baseFontSize)
             }
         }
     }
@@ -193,34 +195,35 @@ private enum BlockParser {
 private struct BlockView: View {
     let block: MarkdownBlock
     let textColor: Color
+    let baseFontSize: CGFloat
 
     var body: some View {
         switch block.kind {
         case .paragraph:
-            InlineRenderer(text: block.text, baseFontSize: 15, textColor: textColor)
+            InlineRenderer(text: block.text, baseFontSize: baseFontSize, textColor: textColor)
         case .heading:
             let level = Int(block.meta ?? "1") ?? 1
-            let size: CGFloat = level == 1 ? 19 : level == 2 ? 16 : 14
+            let size: CGFloat = level == 1 ? baseFontSize + 4 : level == 2 ? baseFontSize + 1 : max(12, baseFontSize - 1)
             InlineRenderer(text: block.text, baseFontSize: size, textColor: textColor).fontWeight(.semibold)
         case .bullet:
             HStack(alignment: .top, spacing: 6) {
-                Text("•").foregroundStyle(Color(red: 0.961, green: 0.651, blue: 0.137)).font(.system(size: 15))
-                InlineRenderer(text: block.text, baseFontSize: 15, textColor: textColor)
+                Text("•").foregroundStyle(Color(red: 0.961, green: 0.651, blue: 0.137)).font(.system(size: baseFontSize))
+                InlineRenderer(text: block.text, baseFontSize: baseFontSize, textColor: textColor)
             }
         case .numbered:
             HStack(alignment: .top, spacing: 6) {
                 Text("\(block.meta ?? "1").")
                     .foregroundStyle(Color(red: 0.961, green: 0.651, blue: 0.137))
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .font(.system(size: max(12, baseFontSize - 1), weight: .medium, design: .monospaced))
                     .frame(minWidth: 20, alignment: .trailing)
-                InlineRenderer(text: block.text, baseFontSize: 15, textColor: textColor)
+                InlineRenderer(text: block.text, baseFontSize: baseFontSize, textColor: textColor)
             }
         case .blockquote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle()
                     .fill(Color(red: 0.961, green: 0.651, blue: 0.137).opacity(0.5))
                     .frame(width: 3).padding(.trailing, 10)
-                InlineRenderer(text: block.text, baseFontSize: 14, textColor: textColor)
+                InlineRenderer(text: block.text, baseFontSize: max(12, baseFontSize - 1), textColor: textColor)
                     .foregroundStyle(textColor.opacity(0.75))
             }
         case .codeBlock:

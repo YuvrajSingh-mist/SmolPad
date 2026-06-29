@@ -14,9 +14,9 @@ struct ToolbarView: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            if state.activeTool == .pen {
+            if state.activeAccessory == .pen {
                 penOptions
-            } else if state.activeTool == .eraser {
+            } else if state.activeAccessory == .eraser {
                 eraserOptions
             }
 
@@ -76,6 +76,7 @@ struct ToolbarView: View {
                     Button {
                         state.selectedPenColorIndex = swatch.id
                         state.activeTool = .pen
+                        state.closeAccessory()
                     } label: {
                         Circle()
                             .fill(swatch.color)
@@ -101,6 +102,9 @@ struct ToolbarView: View {
 
                 Slider(value: $state.penWidth, in: 1.5...12, step: 0.5)
                     .tint(Color(red: 0.961, green: 0.651, blue: 0.137))
+                    .onChange(of: state.penWidth) { _, _ in
+                        state.activeTool = .pen
+                    }
 
                 Circle()
                     .fill(CanvasState.penSwatches[safe: state.selectedPenColorIndex]?.color ?? CanvasState.penSwatches[0].color)
@@ -130,6 +134,9 @@ struct ToolbarView: View {
 
             Slider(value: $state.eraserWidth, in: 6...44, step: 1)
                 .tint(Color(red: 0.961, green: 0.651, blue: 0.137))
+                .onChange(of: state.eraserWidth) { _, _ in
+                    state.activeTool = .eraser
+                }
 
             Circle()
                 .strokeBorder(Color(white: 0.3), lineWidth: 1.2)
@@ -153,14 +160,19 @@ struct ToolbarView: View {
 
     private func toolButton(tool: ActiveTool, icon: String) -> some View {
         let isActive = state.activeTool == tool
+        let showsAccessory = (tool == .pen && state.activeAccessory == .pen)
+            || (tool == .eraser && state.activeAccessory == .eraser)
 
         return Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 state.activeTool = tool
+                if tool != .pen && tool != .eraser {
+                    state.closeAccessory()
+                }
             }
         } label: {
             ZStack {
-                if isActive {
+                if isActive || showsAccessory {
                     Circle()
                         .fill(Color(red: 0.961, green: 0.651, blue: 0.137).opacity(0.18))
                         .frame(width: 38, height: 38)
@@ -177,6 +189,23 @@ struct ToolbarView: View {
             .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.35)
+                .onEnded { _ in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        switch tool {
+                        case .pen:
+                            state.activeTool = .pen
+                            state.activeAccessory = .pen
+                        case .eraser:
+                            state.activeTool = .eraser
+                            state.activeAccessory = .eraser
+                        default:
+                            break
+                        }
+                    }
+                }
+        )
     }
 
     private func toolbarIcon(_ icon: String) -> some View {

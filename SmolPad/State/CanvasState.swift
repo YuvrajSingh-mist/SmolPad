@@ -21,7 +21,13 @@ struct PenSwatch: Identifiable {
 
 @Observable
 final class CanvasState {
+    enum ToolAccessory: Equatable {
+        case pen
+        case eraser
+    }
+
     var activeTool: ActiveTool = .pen
+    var activeAccessory: ToolAccessory?
     @ObservationIgnored let canvasView = PKCanvasView()
     var scrollOffset: CGPoint = .zero
     var zoomScale: CGFloat = 1.0
@@ -35,8 +41,8 @@ final class CanvasState {
     static let penSwatches: [PenSwatch] = [
         PenSwatch(
             id: 0,
-            color: Color(red: 0.02, green: 0.02, blue: 0.06),
-            uiColor: UIColor(red: 0.02, green: 0.02, blue: 0.06, alpha: 1.0)
+            color: Color(red: 0.05, green: 0.05, blue: 0.07),
+            uiColor: UIColor(red: 0.05, green: 0.05, blue: 0.07, alpha: 1.0)
         ),
         PenSwatch(
             id: 1,
@@ -144,6 +150,10 @@ final class CanvasState {
 
     func dismissError() {
         selectionError = nil
+    }
+
+    func closeAccessory() {
+        activeAccessory = nil
     }
 }
 

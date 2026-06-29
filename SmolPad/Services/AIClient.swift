@@ -28,6 +28,18 @@ enum AIError: LocalizedError {
 struct ChatMessage: Codable {
     let role: String
     let content: String
+    let thinking: String?
+
+    init(role: String, content: String, thinking: String? = nil) {
+        self.role = role
+        self.content = content
+        self.thinking = thinking
+    }
+}
+
+struct StreamChunk {
+    let text: String
+    var isThinking: Bool = false
 }
 
 struct AIClient {
@@ -36,7 +48,7 @@ struct AIClient {
         query: String,
         config: AIConfig,
         history: [ChatMessage] = []
-    ) async throws -> AsyncThrowingStream<String, Error> {
+    ) async throws -> AsyncThrowingStream<StreamChunk, Error> {
         let maxDimension: CGFloat
         switch config.provider {
         case .ollama: maxDimension = 384
@@ -271,7 +283,7 @@ struct AIClient {
         return request
     }
 
-    private static func parseLine(_ line: String, provider: AIProvider) -> String? {
+    private static func parseLine(_ line: String, provider: AIProvider) -> StreamChunk? {
         switch provider {
         case .claude:
             guard line.hasPrefix("data: "),
@@ -280,7 +292,7 @@ struct AIClient {
                   let delta = json["delta"] as? [String: Any],
                   let text = delta["text"] as? String
             else { return nil }
-            return text
+            return StreamChunk(text: text)
 
         case .openai, .mlx:
             guard line.hasPrefix("data: "),
@@ -288,23 +300,79 @@ struct AIClient {
                   let data = line.dropFirst(6).data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let choices = json["choices"] as? [[String: Any]],
-                  let delta = choices.first?["delta"] as? [String: Any],
-                  let text = delta["content"] as? String
+                  let delta = choices.first?["delta"] as? [String: Any]
             else { return nil }
-            return text
+
+            if let reasoning = extractReasoning(from: delta), !reasoning.isEmpty {
+                return StreamChunk(text: reasoning, isThinking: true)
+            }
+
+            if let text = extractContent(from: delta), !text.isEmpty {
+                return StreamChunk(text: text)
+            }
+
+            return nil
 
         case .ollama:
             guard let data = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let message = json["message"] as? [String: Any],
-                  let text = message["content"] as? String
+                  let message = json["message"] as? [String: Any]
             else { return nil }
-            return text
+            // Check for thinking token first (GLM, Kimi, etc.)
+            if let thinking = message["thinking"] as? String, !thinking.isEmpty {
+                return StreamChunk(text: thinking, isThinking: true)
+            }
+            if let text = message["content"] as? String, !text.isEmpty {
+                return StreamChunk(text: text, isThinking: false)
+            }
+            return nil
         }
     }
 
     private static func isLocalNetworkDenied(_ error: NSError) -> Bool {
         guard error.code == NSURLErrorNotConnectedToInternet else { return false }
         return String(describing: error.userInfo).localizedCaseInsensitiveContains("local network prohibited")
+    }
+
+    private static func extractReasoning(from delta: [String: Any]) -> String? {
+        if let reasoning = delta["reasoning_content"] as? String {
+            return reasoning
+        }
+        if let reasoning = delta["reasoning"] as? String {
+            return reasoning
+        }
+        if let reasoningItems = delta["reasoning_content"] as? [[String: Any]] {
+            let text = extractText(from: reasoningItems)
+            return text.isEmpty ? nil : text
+        }
+        if let reasoningItems = delta["reasoning"] as? [[String: Any]] {
+            let text = extractText(from: reasoningItems)
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+
+    private static func extractContent(from delta: [String: Any]) -> String? {
+        if let text = delta["content"] as? String {
+            return text
+        }
+        if let items = delta["content"] as? [[String: Any]] {
+            let text = extractText(from: items)
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+
+    private static func extractText(from items: [[String: Any]]) -> String {
+        items.compactMap { item in
+            if let text = item["text"] as? String {
+                return text
+            }
+            if let content = item["content"] as? String {
+                return content
+            }
+            return nil
+        }
+        .joined()
     }
 }
