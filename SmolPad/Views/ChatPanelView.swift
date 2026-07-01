@@ -7,18 +7,8 @@ struct ChatPanelView: View {
     var voiceManager: VoiceManager
 
     @Environment(\.openURL) private var openURL
-    @State private var response = ""
-    @State private var isStreaming = false
-    @State private var streamError: String?
-    @State private var showsLocalNetworkSettings = false
     @FocusState private var queryFocused: Bool
-    @State private var streamingTask: Task<Void, Never>?
     @State private var scrollTick = 0
-    @State private var pendingUserQuery: String?
-    @State private var thinking = ""
-    @State private var rawResponseStream = ""
-    @State private var streamedReasoning = ""
-    @State private var isThinkingExpanded = true
 
     var body: some View {
         GeometryReader { geometry in
@@ -41,11 +31,7 @@ struct ChatPanelView: View {
 
                         if !state.conversation.isEmpty {
                             Button("Clear") {
-                                cancelStream()
                                 state.clearChatSession()
-                                response = ""
-                                thinking = ""
-                                streamError = nil
                             }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Color(red: 0.96, green: 0.75, blue: 0.44))
@@ -53,9 +39,8 @@ struct ChatPanelView: View {
 
                         Button {
                             queryFocused = false
-                            cancelStream()
                             if voiceManager.isListening {
-                                _ = voiceManager.stop()
+                                voiceManager.stopAndDiscardTranscript()
                             }
                             state.dismissChat()
                         } label: {
@@ -92,19 +77,19 @@ struct ChatPanelView: View {
                                         .padding(.vertical, 8)
                                 }
 
-                                if let pendingUserQuery {
+                                if let pendingUserQuery = state.pendingUserQuery {
                                     MessageBubbleView(message: ChatMessage(role: .user, content: pendingUserQuery))
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 8)
                                 }
 
-                                if let streamError {
+                                if let streamError = state.streamError {
                                     VStack(alignment: .leading, spacing: 10) {
                                         Text(streamError)
                                             .font(.system(size: 15))
                                             .foregroundStyle(.red)
 
-                                        if showsLocalNetworkSettings {
+                                        if state.showsLocalNetworkSettings {
                                             Button("Open Settings") {
                                                 guard let settingsURL = URL(string: UIApplication.openSettingsURLString) else {
                                                     return
@@ -123,20 +108,20 @@ struct ChatPanelView: View {
                                         .foregroundStyle(.red)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 10)
-                                } else if !thinking.isEmpty || !response.isEmpty {
+                                } else if !state.streamThinking.isEmpty || !state.streamResponse.isEmpty {
                                     Group {
-                                        if !thinking.isEmpty {
+                                        if !state.streamThinking.isEmpty {
                                             ThinkingSectionView(
-                                                thinking: thinking,
-                                                isExpanded: $isThinkingExpanded,
-                                                isStreaming: isStreaming,
+                                                thinking: state.streamThinking,
+                                                isExpanded: $state.isThinkingExpanded,
+                                                isStreaming: state.isStreaming,
                                                 isLive: true
                                             )
                                         }
 
-                                        if !response.isEmpty {
-                                            MarkdownTextView(text: response, textColor: .white, baseFontSize: 16, spacing: 10)
-                                                .padding(.top, thinking.isEmpty ? 0 : 6)
+                                        if !state.streamResponse.isEmpty {
+                                            MarkdownTextView(text: state.streamResponse, textColor: .white, baseFontSize: 16, spacing: 10)
+                                                .padding(.top, state.streamThinking.isEmpty ? 0 : 6)
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,7 +137,7 @@ struct ChatPanelView: View {
                                     )
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 8)
-                                } else if isStreaming {
+                                } else if state.isStreaming {
                                     HStack(spacing: 8) {
                                         ProgressView()
                                             .scaleEffect(0.8)
@@ -162,7 +147,7 @@ struct ChatPanelView: View {
                                     }
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 12)
-                                } else if !isStreaming {
+                                } else if !state.isStreaming {
                                     Text("Your answer will appear here.")
                                         .font(.system(size: 15))
                                         .foregroundStyle(.white.opacity(0.55))
@@ -186,6 +171,46 @@ struct ChatPanelView: View {
                     }
 
                     Divider().background(.secondary.opacity(0.15))
+
+                    HStack(spacing: 8) {
+                        if config.inferencePath == .appleVisionOCRPlusText {
+                            Text("OCR + \(config.selectedTextModel.displayName)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.80, green: 0.88, blue: 0.96))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        } else {
+                            Text("Direct VLM")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.80, green: 0.88, blue: 0.96))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        }
+
+                        Circle()
+                            .fill(voiceManager.activeBackend == .whisperKit ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+
+                        Text("SR: \(voiceManager.activeBackendDisplayName)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+
+                        if voiceManager.isListening {
+                            Text("Listening")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(red: 0.96, green: 0.75, blue: 0.44))
+                        } else if voiceManager.isProcessingSpeech {
+                            Text("Transcribing")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(red: 0.55, green: 0.83, blue: 0.96))
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
 
                     HStack(spacing: 10) {
                         TextField("Ask about this...", text: $state.chatDraft)
@@ -231,13 +256,14 @@ struct ChatPanelView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            if isStreaming {
-                                cancelStream()
+                            if state.isStreaming {
+                                state.cancelStreaming()
+                                scrollTick &+= 1
                             } else {
                                 sendQuery()
                             }
                         } label: {
-                            if isStreaming {
+                            if state.isStreaming {
                                 Image(systemName: "stop.circle.fill")
                                     .font(.system(size: 32))
                                     .foregroundStyle(.red)
@@ -282,187 +308,30 @@ struct ChatPanelView: View {
         .ignoresSafeArea(edges: .bottom)
         .onAppear {
             voiceManager.requestPermission()
+            scrollTick &+= 1
         }
-    }
-
-    private func sendQuery() {
-        guard !isStreaming else { return }
-
-        let userQuery = state.chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !userQuery.isEmpty else { return }
-
-        resetStreamingPresentation()
-        scrollTick = 0
-        isStreaming = true
-        queryFocused = false
-        pendingUserQuery = userQuery
-        state.chatDraft = ""
-        scrollTick &+= 1
-
-        let task = Task {
-            do {
-                let stream = try await AIClient.send(
-                    image: state.capturedImage,
-                    query: userQuery,
-                    config: config,
-                    history: state.conversation
-                )
-                var chunkCount = 0
-                for try await chunk in stream {
-                    if Task.isCancelled { break }
-                    await MainActor.run {
-                        present(chunk: chunk, chunkCount: &chunkCount)
-                    }
-                }
-                if Task.isCancelled {
-                    await MainActor.run {
-                        finishCancellation()
-                    }
-                } else {
-                    await MainActor.run {
-                        commitCompletedTurn(for: userQuery)
-                    }
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                if let aiError = error as? AIError, case .cancelled = aiError {
-                    await MainActor.run {
-                        finishCancellation()
-                    }
-                    return
-                }
-                await MainActor.run {
-                    present(error: error)
-                }
-            }
-
-            await MainActor.run {
-                isStreaming = false
-                streamingTask = nil
-            }
+        .onChange(of: state.pendingUserQuery) { _, _ in
+            scrollTick &+= 1
         }
-
-        streamingTask = task
-    }
-
-    private func cancelStream() {
-        streamingTask?.cancel()
-        streamingTask = nil
-        isStreaming = false
-        finishCancellation()
-    }
-
-    private func finishCancellation() {
-        if let pendingUserQuery {
-            state.appendUserMessage(pendingUserQuery)
-            self.pendingUserQuery = nil
+        .onChange(of: state.streamResponse) { _, _ in
+            scrollTick &+= 1
         }
-        resetStreamingPresentation()
-        scrollTick &+= 1
-    }
-
-    private func reconcileStreamBuffers() {
-        let parsed = Self.splitThinkingAndResponse(from: rawResponseStream)
-        let combinedThinking = [streamedReasoning, parsed.thinking]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: streamedReasoning.isEmpty || parsed.thinking.isEmpty ? "" : "\n\n")
-
-        thinking = combinedThinking
-        response = parsed.response
-    }
-
-    private static func splitThinkingAndResponse(from raw: String) -> (thinking: String, response: String) {
-        guard !raw.isEmpty else { return ("", "") }
-
-        var remaining = raw
-        var thinkingParts: [String] = []
-        var responseParts: [String] = []
-
-        while let openRange = remaining.range(of: "<think>") {
-            let before = remaining[..<openRange.lowerBound]
-            if !before.isEmpty {
-                responseParts.append(String(before))
-            }
-
-            let afterOpen = remaining[openRange.upperBound...]
-            if let closeRange = afterOpen.range(of: "</think>") {
-                let thought = afterOpen[..<closeRange.lowerBound]
-                if !thought.isEmpty {
-                    thinkingParts.append(String(thought))
-                }
-                remaining = String(afterOpen[closeRange.upperBound...])
-            } else {
-                let unfinished = afterOpen.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !unfinished.isEmpty {
-                    thinkingParts.append(unfinished)
-                }
-                remaining = ""
-                break
-            }
+        .onChange(of: state.streamThinking) { _, _ in
+            scrollTick &+= 1
         }
-
-        if !remaining.isEmpty {
-            responseParts.append(remaining)
-        }
-
-        let thinking = thinkingParts
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let response = responseParts
-            .joined()
-            .replacingOccurrences(of: "<think>", with: "")
-            .replacingOccurrences(of: "</think>", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return (thinking, response)
-    }
-
-    private func resetStreamingPresentation() {
-        response = ""
-        thinking = ""
-        rawResponseStream = ""
-        streamedReasoning = ""
-        isThinkingExpanded = true
-        streamError = nil
-        showsLocalNetworkSettings = false
-    }
-
-    private func present(chunk: StreamChunk, chunkCount: inout Int) {
-        if chunk.isThinking {
-            streamedReasoning += chunk.text
-        } else {
-            rawResponseStream += chunk.text
-        }
-        reconcileStreamBuffers()
-        chunkCount += 1
-        if chunkCount % 3 == 0 {
+        .onChange(of: state.conversation.count) { _, _ in
             scrollTick &+= 1
         }
     }
 
-    private func commitCompletedTurn(for userQuery: String) {
-        state.appendConversationTurn(user: userQuery, assistant: response, thinking: thinking)
-        pendingUserQuery = nil
-        response = ""
-        thinking = ""
-        rawResponseStream = ""
-        streamedReasoning = ""
-        scrollTick &+= 1
-    }
-
-    private func present(error: Error) {
-        streamError = error.localizedDescription
-        if let pendingUserQuery {
-            state.appendUserMessage(pendingUserQuery)
-            self.pendingUserQuery = nil
+    private func sendQuery() {
+        queryFocused = false
+        if voiceManager.isListening {
+            voiceManager.stopAndDiscardTranscript()
         }
-        showsLocalNetworkSettings = {
-            guard let aiError = error as? AIError else { return false }
-            if case .localNetworkDenied = aiError {
-                return true
-            }
-            return false
-        }()
+        scrollTick = 0
+        state.sendQuery(config: config)
+        scrollTick &+= 1
     }
 }
 

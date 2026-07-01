@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A1000000000000000000000D /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000001 /* MarkdownUI */; };
 		A1000000000000000000000E /* SwiftUIMath in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000002 /* SwiftUIMath */; };
+		A10000000000000000000015 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000003 /* WhisperKit */; };
 		A10000000000000000000001 /* SmolPadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* SmolPadApp.swift */; };
 		A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
 		A10000000000000000000003 /* CanvasHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* CanvasHostView.swift */; };
@@ -21,6 +22,16 @@
 		A1000000000000000000000A /* AIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* AIClient.swift */; };
 		A1000000000000000000000B /* VoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* VoiceManager.swift */; };
 		A1000000000000000000000C /* MarkdownTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* MarkdownTextView.swift */; };
+		A1000000000000000000000F /* ConversationContextManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* ConversationContextManager.swift */; };
+		A10000000000000000000010 /* InputAwareCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* InputAwareCanvasView.swift */; };
+		A10000000000000000000011 /* DiagnosticsLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* DiagnosticsLogger.swift */; };
+		A10000000000000000000012 /* SpeechRecognitionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* SpeechRecognitionProvider.swift */; };
+		A10000000000000000000013 /* AppleSpeechRecognitionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* AppleSpeechRecognitionProvider.swift */; };
+		A10000000000000000000014 /* WhisperKitSpeechRecognitionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* WhisperKitSpeechRecognitionProvider.swift */; };
+		A10000000000000000000016 /* VoiceActivityDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* VoiceActivityDetector.swift */; };
+		A10000000000000000000017 /* AppleSpeechFileFallbackTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */; };
+		A10000000000000000000018 /* AppleVisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* AppleVisionOCRService.swift */; };
+		A10000000000000000000019 /* OnDeviceTextClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* OnDeviceTextClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +49,16 @@
 		A2000000000000000000000C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000000000000000000000D /* SmolPad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SmolPad.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000000000000000000000E /* MarkdownTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* ConversationContextManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationContextManager.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* InputAwareCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputAwareCanvasView.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* DiagnosticsLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsLogger.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* SpeechRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognitionProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* AppleSpeechRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechRecognitionProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* WhisperKitSpeechRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitSpeechRecognitionProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* VoiceActivityDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceActivityDetector.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechFileFallbackTranscriber.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* AppleVisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleVisionOCRService.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* OnDeviceTextClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceTextClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,6 +68,7 @@
 			files = (
 				A1000000000000000000000D /* MarkdownUI in Frameworks */,
 				A1000000000000000000000E /* SwiftUIMath in Frameworks */,
+				A10000000000000000000015 /* WhisperKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -92,6 +114,7 @@
 				A20000000000000000000006 /* ChatPanelView.swift */,
 				A20000000000000000000007 /* SettingsView.swift */,
 				A2000000000000000000000E /* MarkdownTextView.swift */,
+				A20000000000000000000010 /* InputAwareCanvasView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -100,6 +123,15 @@
 			isa = PBXGroup;
 			children = (
 				A2000000000000000000000A /* AIClient.swift */,
+				A2000000000000000000000F /* ConversationContextManager.swift */,
+				A20000000000000000000011 /* DiagnosticsLogger.swift */,
+				A20000000000000000000012 /* SpeechRecognitionProvider.swift */,
+				A20000000000000000000013 /* AppleSpeechRecognitionProvider.swift */,
+				A20000000000000000000014 /* WhisperKitSpeechRecognitionProvider.swift */,
+				A20000000000000000000015 /* VoiceActivityDetector.swift */,
+				A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */,
+				A20000000000000000000017 /* AppleVisionOCRService.swift */,
+				A20000000000000000000018 /* OnDeviceTextClient.swift */,
 				A2000000000000000000000B /* VoiceManager.swift */,
 			);
 			path = Services;
@@ -132,6 +164,7 @@
 			packageProductDependencies = (
 				A11000000000000000000001 /* MarkdownUI */,
 				A11000000000000000000002 /* SwiftUIMath */,
+				A11000000000000000000003 /* WhisperKit */,
 			);
 			productName = SmolPad;
 			productReference = A2000000000000000000000D /* SmolPad.app */;
@@ -164,6 +197,7 @@
 			packageReferences = (
 				A12000000000000000000001 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */,
+				A12000000000000000000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
 			productRefGroup = A40000000000000000000006 /* Products */;
 			projectDirPath = "";
@@ -193,6 +227,15 @@
 				A10000000000000000000008 /* CanvasState.swift in Sources */,
 				A10000000000000000000009 /* AIConfig.swift in Sources */,
 				A1000000000000000000000A /* AIClient.swift in Sources */,
+				A1000000000000000000000F /* ConversationContextManager.swift in Sources */,
+				A10000000000000000000011 /* DiagnosticsLogger.swift in Sources */,
+				A10000000000000000000012 /* SpeechRecognitionProvider.swift in Sources */,
+				A10000000000000000000013 /* AppleSpeechRecognitionProvider.swift in Sources */,
+				A10000000000000000000014 /* WhisperKitSpeechRecognitionProvider.swift in Sources */,
+				A10000000000000000000016 /* VoiceActivityDetector.swift in Sources */,
+				A10000000000000000000017 /* AppleSpeechFileFallbackTranscriber.swift in Sources */,
+				A10000000000000000000018 /* AppleVisionOCRService.swift in Sources */,
+				A10000000000000000000019 /* OnDeviceTextClient.swift in Sources */,
 				A1000000000000000000000B /* VoiceManager.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
 				A10000000000000000000003 /* CanvasHostView.swift in Sources */,
@@ -201,6 +244,7 @@
 				A10000000000000000000006 /* ChatPanelView.swift in Sources */,
 				A10000000000000000000007 /* SettingsView.swift in Sources */,
 				A1000000000000000000000C /* MarkdownTextView.swift in Sources */,
+				A10000000000000000000010 /* InputAwareCanvasView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -422,6 +466,14 @@
 				minimumVersion = 0.1.0;
 			};
 		};
+		A12000000000000000000003 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -434,6 +486,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */;
 			productName = SwiftUIMath;
+		};
+		A11000000000000000000003 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A12000000000000000000003 /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

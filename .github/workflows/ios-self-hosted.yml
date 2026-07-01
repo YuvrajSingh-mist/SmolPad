@@ -1,0 +1,113 @@
+name: iOS Self-Hosted CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_benchmarks:
+        description: Run handwritten vision benchmarks
+        required: false
+        default: "true"
+      mlx_host:
+        description: MLX server URL
+        required: false
+        default: "http://192.168.1.8:8080"
+      mlx_model:
+        description: MLX vision model
+        required: false
+        default: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
+      ollama_host:
+        description: Ollama server URL
+        required: false
+        default: "http://192.168.1.8:11434"
+      ollama_model:
+        description: Ollama vision model
+        required: false
+        default: "richardyoung/kimi-vl-a3b-thinking:latest"
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  build-test-and-benchmark:
+    runs-on: self-hosted
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      FIXTURE_DIR: /tmp/smolpad-vision-fixtures
+      MLX_HOST: ${{ inputs.mlx_host || 'http://192.168.1.8:8080' }}
+      MLX_MODEL: ${{ inputs.mlx_model || 'mlx-community/Qwen2.5-VL-7B-Instruct-4bit' }}
+      OLLAMA_HOST: ${{ inputs.ollama_host || 'http://192.168.1.8:11434' }}
+      OLLAMA_MODEL: ${{ inputs.ollama_model || 'richardyoung/kimi-vl-a3b-thinking:latest' }}
+      RUN_BENCHMARKS: ${{ inputs.run_benchmarks || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$DEVELOPER_DIR"
+
+      - name: Show Tool Versions
+        run: |
+          xcodebuild -version
+          swift --version
+          python3 --version
+
+      - name: Resolve Swift Packages
+        run: xcodebuild -resolvePackageDependencies -project SmolPad.xcodeproj
+
+      - name: Build App
+        run: |
+          xcodebuild \
+            -project SmolPad.xcodeproj \
+            -scheme SmolPad \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath /tmp/SmolPadDerivedData_ci \
+            build
+
+      - name: Run Unit and UI Tests
+        run: |
+          xcodebuild \
+            -project SmolPad.xcodeproj \
+            -scheme SmolPad \
+            -destination 'platform=iOS Simulator,name=iPad Pro (12.9-inch) (6th generation)' \
+            -derivedDataPath /tmp/SmolPadDerivedData_ci \
+            -resultBundlePath /tmp/SmolPadTests.xcresult \
+            test
+
+      - name: Generate Vision Fixtures
+        if: env.RUN_BENCHMARKS == 'true'
+        run: swift Tools/MakeVisionFixtures.swift
+
+      - name: Run MLX Vision Benchmark
+        if: env.RUN_BENCHMARKS == 'true'
+        run: |
+          python3 Tools/benchmark_mlx_vision.py \
+            "$MLX_HOST" \
+            "$MLX_MODEL" \
+            "$FIXTURE_DIR" | tee /tmp/smolpad-mlx-benchmark.txt
+
+      - name: Run Ollama Vision Benchmark
+        if: env.RUN_BENCHMARKS == 'true'
+        run: |
+          python3 Tools/benchmark_ollama_vision.py \
+            "$OLLAMA_HOST" \
+            "$OLLAMA_MODEL" \
+            "$FIXTURE_DIR" | tee /tmp/smolpad-ollama-benchmark.txt
+
+      - name: Upload Test Result Bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolpad-xcresult
+          path: /tmp/SmolPadTests.xcresult
+
+      - name: Upload Benchmark Outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolpad-benchmark-outputs
+          path: |
+            /tmp/smolpad-mlx-benchmark.txt
+            /tmp/smolpad-ollama-benchmark.txt

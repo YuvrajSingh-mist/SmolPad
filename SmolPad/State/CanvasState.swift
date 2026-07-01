@@ -26,9 +26,15 @@ final class CanvasState {
         case eraser
     }
 
-    var activeTool: ActiveTool = .pen
+    var activeTool: ActiveTool = .pen {
+        didSet {
+            if activeTool == .pen || activeTool == .eraser {
+                preferredEditingTool = activeTool
+            }
+        }
+    }
     var activeAccessory: ToolAccessory?
-    @ObservationIgnored let canvasView = PKCanvasView()
+    @ObservationIgnored let canvasView = InputAwareCanvasView()
     var scrollOffset: CGPoint = .zero
     var zoomScale: CGFloat = 1.0
     var capturedImage: UIImage?
@@ -39,7 +45,17 @@ final class CanvasState {
     var eraserWidth: CGFloat = 22.0
     var chatDraft = ""
     var conversation: [ChatMessage] = []
+    var conversationSummary = ""
+    var streamResponse = ""
+    var streamThinking = ""
+    var streamError: String?
+    var showsLocalNetworkSettings = false
+    var pendingUserQuery: String?
+    var isStreaming = false
+    var isThinkingExpanded = true
+    @ObservationIgnored private var streamingTask: Task<Void, Never>?
     private var captureFingerprint: Int?
+    private var preferredEditingTool: ActiveTool = .pen
 
     static let penSwatches: [PenSwatch] = [
         PenSwatch(
@@ -147,14 +163,19 @@ final class CanvasState {
     }
 
     func dismissChat() {
+        DiagnosticsLogger.app.info("Chat panel dismissed")
         showChat = false
-        capturedImage = nil
-        captureFingerprint = nil
     }
 
     func clearChatSession() {
+        DiagnosticsLogger.app.notice("Clearing chat session conversationCount=\(conversation.count, privacy: .public)")
+        streamingTask?.cancel()
+        streamingTask = nil
         chatDraft = ""
         conversation = []
+        conversationSummary = ""
+        pendingUserQuery = nil
+        resetStreamingPresentation()
     }
 
     func appendUserMessage(_ content: String) {
@@ -166,8 +187,101 @@ final class CanvasState {
     }
 
     func appendConversationTurn(user: String, assistant: String, thinking: String?) {
+        DiagnosticsLogger.context.info(
+            "Appending completed turn userChars=\(user.count, privacy: .public) assistantChars=\(assistant.count, privacy: .public) thinkingChars=\((thinking ?? "").count, privacy: .public)"
+        )
         appendUserMessage(user)
         appendAssistantMessage(assistant, thinking: thinking)
+
+        let compacted = ConversationContextManager.compact(
+            history: conversation,
+            existingSummary: conversationSummary
+        )
+        conversation = compacted.recentMessages
+        conversationSummary = compacted.summary
+    }
+
+    func sendQuery(config: AIConfig) {
+        guard !isStreaming else { return }
+
+        let userQuery = chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userQuery.isEmpty else { return }
+
+        DiagnosticsLogger.app.info(
+            "Sending query provider=\(config.provider.rawValue, privacy: .public) query=\(DiagnosticsLogger.truncated(userQuery), privacy: .public) conversationCount=\(conversation.count, privacy: .public) hasImage=\(capturedImage != nil, privacy: .public)"
+        )
+
+        resetStreamingPresentation()
+        isStreaming = true
+        pendingUserQuery = userQuery
+        chatDraft = ""
+
+        let task = Task {
+            do {
+                let stream = try await AIClient.send(
+                    image: capturedImage,
+                    query: userQuery,
+                    config: config,
+                    history: conversation,
+                    summary: conversationSummary
+                )
+
+                for try await chunk in stream {
+                    if Task.isCancelled { break }
+                    await MainActor.run {
+                        present(chunk: chunk)
+                    }
+                }
+
+                await MainActor.run {
+                    if Task.isCancelled {
+                        finishCancellation()
+                    } else {
+                        commitCompletedTurn(for: userQuery)
+                    }
+                    DiagnosticsLogger.app.info("Completed query successfully")
+                    isStreaming = false
+                    streamingTask = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+
+                await MainActor.run {
+                    if let aiError = error as? AIError, case .cancelled = aiError {
+                        finishCancellation()
+                    } else {
+                        present(error: error)
+                    }
+                    DiagnosticsLogger.app.error("Query failed error=\(error.localizedDescription, privacy: .public)")
+                    isStreaming = false
+                    streamingTask = nil
+                }
+            }
+        }
+
+        streamingTask = task
+    }
+
+    func cancelStreaming() {
+        DiagnosticsLogger.app.notice("Cancelling active stream")
+        streamingTask?.cancel()
+        streamingTask = nil
+        isStreaming = false
+        finishCancellation()
+    }
+
+    func beginFingerCanvasNavigation() {
+        guard !activeTool.isSelection else { return }
+        closeAccessory()
+        activeTool = .hand
+    }
+
+    func beginPencilCanvasEditing() {
+        guard !activeTool.isSelection else { return }
+        closeAccessory()
+        if activeTool == .hand {
+            activeTool = preferredEditingTool
+        }
     }
 
     func dismissError() {
@@ -181,11 +295,13 @@ final class CanvasState {
     private func beginChatCaptureSession(with image: UIImage) {
         let newFingerprint = fingerprint(for: image)
         if let currentFingerprint = captureFingerprint, currentFingerprint != newFingerprint {
+            DiagnosticsLogger.app.notice("Selection changed; resetting chat session")
             clearChatSession()
         }
 
         capturedImage = image
         captureFingerprint = newFingerprint
+        DiagnosticsLogger.app.info("Started chat capture session imageSize=\(Int(image.size.width), privacy: .public)x\(Int(image.size.height), privacy: .public)")
     }
 
     private func fingerprint(for image: UIImage) -> Int {
@@ -202,6 +318,56 @@ final class CanvasState {
         }
 
         return hasher.finalize()
+    }
+
+    private func present(chunk: StreamChunk) {
+        if chunk.isThinking {
+            streamThinking += chunk.text
+        } else {
+            streamResponse += chunk.text
+        }
+        DiagnosticsLogger.ai.debug(
+            "Presented chunk kind=\(chunk.isThinking ? "thinking" : "response", privacy: .public) chunkChars=\(chunk.text.count, privacy: .public) totalResponseChars=\(streamResponse.count, privacy: .public) totalThinkingChars=\(streamThinking.count, privacy: .public)"
+        )
+    }
+
+    private func commitCompletedTurn(for userQuery: String) {
+        appendConversationTurn(user: userQuery, assistant: streamResponse, thinking: streamThinking)
+        pendingUserQuery = nil
+        resetStreamingPresentation()
+    }
+
+    private func finishCancellation() {
+        if let pendingUserQuery {
+            appendUserMessage(pendingUserQuery)
+            self.pendingUserQuery = nil
+        }
+        DiagnosticsLogger.app.notice("Stream cancelled; preserved pending user message if any")
+        resetStreamingPresentation()
+    }
+
+    private func present(error: Error) {
+        streamError = error.localizedDescription
+        if let pendingUserQuery {
+            appendUserMessage(pendingUserQuery)
+            self.pendingUserQuery = nil
+        }
+        showsLocalNetworkSettings = {
+            guard let aiError = error as? AIError else { return false }
+            if case .localNetworkDenied = aiError {
+                return true
+            }
+            return false
+        }()
+        DiagnosticsLogger.app.error("Presented stream error: \(error.localizedDescription, privacy: .public)")
+    }
+
+    private func resetStreamingPresentation() {
+        streamResponse = ""
+        streamThinking = ""
+        streamError = nil
+        showsLocalNetworkSettings = false
+        isThinkingExpanded = true
     }
 }
 

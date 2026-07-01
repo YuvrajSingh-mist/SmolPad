@@ -1,0 +1,79 @@
+name: Vision Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: Which vision backend to benchmark
+        required: true
+        default: mlx
+        type: choice
+        options:
+          - mlx
+          - ollama
+          - both
+      fixture_generation:
+        description: Regenerate handwritten fixtures before benchmarking
+        required: false
+        default: true
+        type: boolean
+      mlx_host:
+        description: MLX server URL
+        required: false
+        default: http://192.168.1.8:8080
+      mlx_model:
+        description: MLX model
+        required: false
+        default: mlx-community/Qwen2.5-VL-7B-Instruct-4bit
+      ollama_host:
+        description: Ollama server URL
+        required: false
+        default: http://192.168.1.8:11434
+      ollama_model:
+        description: Ollama model
+        required: false
+        default: richardyoung/kimi-vl-a3b-thinking:latest
+
+jobs:
+  benchmark:
+    runs-on: self-hosted
+    timeout-minutes: 90
+    env:
+      FIXTURE_DIR: /tmp/smolpad-vision-fixtures
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Tool Versions
+        run: |
+          swift --version
+          python3 --version
+
+      - name: Generate Fixtures
+        if: ${{ inputs.fixture_generation }}
+        run: swift Tools/MakeVisionFixtures.swift
+
+      - name: Run MLX Benchmark
+        if: ${{ inputs.backend == 'mlx' || inputs.backend == 'both' }}
+        run: |
+          python3 Tools/benchmark_mlx_vision.py \
+            "${{ inputs.mlx_host }}" \
+            "${{ inputs.mlx_model }}" \
+            "$FIXTURE_DIR" | tee /tmp/smolpad-mlx-benchmark.txt
+
+      - name: Run Ollama Benchmark
+        if: ${{ inputs.backend == 'ollama' || inputs.backend == 'both' }}
+        run: |
+          python3 Tools/benchmark_ollama_vision.py \
+            "${{ inputs.ollama_host }}" \
+            "${{ inputs.ollama_model }}" \
+            "$FIXTURE_DIR" | tee /tmp/smolpad-ollama-benchmark.txt
+
+      - name: Upload Benchmark Outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smolpad-vision-benchmark-outputs
+          path: |
+            /tmp/smolpad-mlx-benchmark.txt
+            /tmp/smolpad-ollama-benchmark.txt

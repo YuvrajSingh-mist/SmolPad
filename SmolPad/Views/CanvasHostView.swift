@@ -21,8 +21,9 @@ struct CanvasHostView: UIViewRepresentable {
         canvas.frame = CGRect(x: 0, y: 0, width: 2048, height: 4096)
         canvas.backgroundColor = .clear
         canvas.overrideUserInterfaceStyle = .light
-        canvas.drawingPolicy = .anyInput
+        canvas.drawingPolicy = .pencilOnly
         canvas.delegate = context.coordinator
+        canvas.inputDelegate = context.coordinator
         canvas.tool = PKInkingTool(.pen, color: state.selectedPenColor, width: state.penWidth)
         canvas.isRulerActive = false
 
@@ -43,19 +44,19 @@ struct CanvasHostView: UIViewRepresentable {
         let canvas = state.canvasView
         scrollView.overrideUserInterfaceStyle = .light
         canvas.overrideUserInterfaceStyle = .light
-        scrollView.isScrollEnabled = state.activeTool == .hand
+        scrollView.isScrollEnabled = !state.activeTool.isSelection
         canvas.isUserInteractionEnabled = !state.activeTool.isSelection
 
         switch state.activeTool {
         case .pen:
-            canvas.drawingPolicy = .anyInput
+            canvas.drawingPolicy = .pencilOnly
             canvas.tool = PKInkingTool(
                 .pen,
                 color: state.selectedPenColor,
                 width: state.penWidth
             )
         case .eraser:
-            canvas.drawingPolicy = .anyInput
+            canvas.drawingPolicy = .pencilOnly
             let eraser = PKEraserTool(.bitmap, width: state.eraserWidth)
             canvas.tool = eraser
         case .hand:
@@ -74,7 +75,7 @@ struct CanvasHostView: UIViewRepresentable {
         Coordinator(state: state)
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, PKCanvasViewDelegate, InputAwareCanvasViewDelegate {
         let state: CanvasState
 
         init(state: CanvasState) {
@@ -89,8 +90,16 @@ struct CanvasHostView: UIViewRepresentable {
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             state.closeAccessory()
             if state.activeTool == .hand {
-                state.activeTool = .pen
+                state.beginPencilCanvasEditing()
             }
+        }
+
+        func canvasViewDidBeginFingerInteraction(_ canvasView: InputAwareCanvasView) {
+            state.beginFingerCanvasNavigation()
+        }
+
+        func canvasViewDidBeginPencilInteraction(_ canvasView: InputAwareCanvasView) {
+            state.beginPencilCanvasEditing()
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {

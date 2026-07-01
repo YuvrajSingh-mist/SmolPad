@@ -141,7 +141,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: canvasState.activeTool)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: canvasState.selectionError)
         .sheet(isPresented: $showSettings) {
-            SettingsView(config: aiConfig)
+            SettingsView(config: aiConfig, voiceManager: voiceManager)
         }
         .task(id: backendStatusTaskKey) {
             while !Task.isCancelled {
@@ -157,6 +157,8 @@ struct ContentView: View {
     private var backendStatusTaskKey: String {
         [
             aiConfig.provider.rawValue,
+            aiConfig.inferencePath.rawValue,
+            aiConfig.textModelID,
             aiConfig.mlxURL,
             aiConfig.ollamaURL,
             aiConfig.apiKey
@@ -197,6 +199,10 @@ private struct BackendStatusSnapshot {
 private enum BackendStatusService {
     static func check(config: AIConfig) async -> BackendStatusSnapshot {
         switch config.provider {
+        case .onDevice:
+            let ok = OnDeviceTextClient.isRuntimeAvailable
+            let label = ok ? "Connect: \(config.provider.rawValue)" : "On Device Unavailable"
+            return BackendStatusSnapshot(label: label, isConnected: ok)
         case .mlx:
             let ok = await isReachable(urlString: "\(config.mlxURL)/v1/models")
             return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)

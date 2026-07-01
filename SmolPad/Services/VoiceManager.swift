@@ -1,149 +1,208 @@
-import AVFoundation
+import Foundation
 import Observation
-import Speech
 
 @Observable
 @MainActor
-final class VoiceManager: NSObject {
+final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     var transcript = ""
     var isListening = false
+    var isProcessingSpeech = false
     var error: String?
+    var preferredBackend: SpeechRecognitionBackend {
+        didSet {
+            guard preferredBackend != oldValue else { return }
+            activeBackend = resolvedBackend(for: preferredBackend)
+            savePreferences()
+            DiagnosticsLogger.voice.info("Preferred speech backend changed to \(preferredBackend.rawValue, privacy: .public)")
+        }
+    }
+    var whisperKitModelIdentifier: String {
+        didSet {
+            guard whisperKitModelIdentifier != oldValue else { return }
+            savePreferences()
+            DiagnosticsLogger.voice.info("WhisperKit model identifier updated to \(whisperKitModelIdentifier, privacy: .public)")
+        }
+    }
+    private(set) var activeBackend: SpeechRecognitionBackend
 
-    @ObservationIgnored private let recognizer = SFSpeechRecognizer(locale: Locale.current)
-    @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
-    @ObservationIgnored private var task: SFSpeechRecognitionTask?
-    @ObservationIgnored private let engine = AVAudioEngine()
-    @ObservationIgnored private var isFinishing = false
+    @ObservationIgnored private let appleProvider = AppleSpeechRecognitionProvider()
+    @ObservationIgnored private let whisperKitProvider = WhisperKitSpeechRecognitionProvider()
+    @ObservationIgnored private var activeProvider: (any SpeechRecognitionProviding)?
+
+    private enum Key: String {
+        case preferredBackend
+        case whisperKitModelIdentifier
+    }
+
+    override init() {
+        let defaults = UserDefaults.standard
+        let storedBackend = defaults.string(forKey: Key.preferredBackend.rawValue)
+        preferredBackend = SpeechRecognitionBackend(rawValue: storedBackend ?? "") ?? .automatic
+
+        let storedModel = defaults.string(forKey: Key.whisperKitModelIdentifier.rawValue) ?? ""
+        whisperKitModelIdentifier = storedModel.isEmpty ? "large-v3-v20240930_626MB" : storedModel
+        activeBackend = .appleSpeech
+
+        super.init()
+
+        appleProvider.delegate = self
+        whisperKitProvider.delegate = self
+        activeBackend = resolvedBackend(for: preferredBackend)
+    }
+
+    var preferredBackendDescription: String {
+        preferredBackend.description
+    }
+
+    var activeBackendDisplayName: String {
+        provider(for: activeBackend).displayName
+    }
+
+    var whisperKitAvailable: Bool {
+        whisperKitProvider.isSupported
+    }
 
     func requestPermission() {
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            Task { @MainActor in
-                if status != .authorized {
-                    self?.error = "Speech recognition is not enabled for SmolPad."
-                }
-            }
-        }
+        DiagnosticsLogger.voice.info("VoiceManager requesting permissions preferredBackend=\(preferredBackend.rawValue, privacy: .public)")
 
-        AVAudioApplication.requestRecordPermission { [weak self] granted in
-            Task { @MainActor in
-                if !granted {
-                    self?.error = "Microphone access is not enabled for SmolPad."
-                }
-            }
+        appleProvider.requestPermission()
+        if whisperKitProvider.isSupported {
+            whisperKitProvider.requestPermission()
         }
     }
 
     func start() {
-        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
-            requestPermission()
-            error = "Allow speech recognition, then tap the mic again."
+        let backend = resolvedBackend(for: preferredBackend)
+        activeBackend = backend
+        let provider = provider(for: backend)
+
+        guard provider.isSupported else {
+            error = unsupportedMessage(for: backend)
+            DiagnosticsLogger.voice.error("Selected unsupported speech backend \(backend.rawValue, privacy: .public)")
             return
         }
-
-        guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            error = "Speech recognition is not enabled for SmolPad."
-            return
-        }
-
-        guard recognizer?.isAvailable == true else {
-            error = "Speech recognition is temporarily unavailable."
-            return
-        }
-
-        guard !engine.isRunning else { return }
 
         error = nil
         transcript = ""
-        isFinishing = false
+        isProcessingSpeech = false
+        activeProvider = provider
 
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
-
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.shouldReportPartialResults = true
-            self.request = request
-
-            let inputNode = engine.inputNode
-            let format = inputNode.outputFormat(forBus: 0)
-            inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-                Task { @MainActor in
-                    self?.request?.append(buffer)
-                }
-            }
-
-            engine.prepare()
-            try engine.start()
-
-            task = recognizer?.recognitionTask(with: request) { [weak self] result, recognitionError in
-                Task { @MainActor in
-                    guard let self else { return }
-
-                    if let result {
-                        self.transcript = result.bestTranscription.formattedString
-                    }
-
-                    if let recognitionError {
-                        if self.isFinishing || self.isExpectedStopError(recognitionError) {
-                            self.cleanupRecognition()
-                        } else {
-                            self.error = recognitionError.localizedDescription
-                            self.stopEngine()
-                        }
-                    } else if result?.isFinal ?? false {
-                        self.cleanupRecognition()
-                    }
-                }
-            }
-
-            isListening = true
-        } catch {
-            self.error = error.localizedDescription
-            stopEngine()
-        }
+        DiagnosticsLogger.voice.info("VoiceManager starting backend=\(backend.rawValue, privacy: .public)")
+        provider.start(
+            configuration: SpeechRecognitionSessionConfiguration(
+                locale: Locale.current,
+                whisperKitModel: whisperKitModelIdentifier
+            )
+        )
     }
 
     func stop() -> String {
-        error = nil
-        isFinishing = true
-        stopAudioCapture()
+        guard let activeProvider else {
+            return transcript
+        }
+
+        DiagnosticsLogger.voice.info("VoiceManager stop backend=\(activeBackend.rawValue, privacy: .public)")
+        if activeBackend == .whisperKit {
+            isProcessingSpeech = true
+        }
+        let finalTranscript = activeProvider.stop()
+        if !finalTranscript.isEmpty {
+            transcript = finalTranscript
+        }
         return transcript
     }
 
-    private func stopEngine() {
-        stopAudioCapture()
-        task?.cancel()
-        cleanupRecognition()
+    func stopAndDiscardTranscript() {
+        DiagnosticsLogger.voice.notice("VoiceManager stop and discard backend=\(activeBackend.rawValue, privacy: .public)")
+        activeProvider?.stopAndDiscardTranscript()
+        transcript = ""
+        isProcessingSpeech = false
     }
 
-    private func stopAudioCapture() {
-        request?.endAudio()
-        if engine.isRunning {
-            engine.stop()
+    func speechProvider(_ provider: any SpeechRecognitionProviding, didChangeListeningState isListening: Bool) {
+        self.isListening = isListening
+        if !isListening, activeBackend == provider.backend {
+            if provider.backend != .whisperKit || !isProcessingSpeech {
+                activeProvider = nil
+            }
         }
-        engine.inputNode.removeTap(onBus: 0)
-        isListening = false
-        try? AVAudioSession.sharedInstance().setActive(false)
+        DiagnosticsLogger.voice.debug("VoiceManager listening state backend=\(provider.backend.rawValue, privacy: .public) isListening=\(isListening, privacy: .public)")
     }
 
-    private func cleanupRecognition() {
-        task = nil
-        request = nil
-        isListening = false
-        isFinishing = false
+    func speechProvider(_ provider: any SpeechRecognitionProviding, didUpdateTranscript transcript: String, isFinal: Bool) {
+        self.transcript = transcript
+        self.error = nil
+        if isFinal {
+            isProcessingSpeech = false
+            if activeBackend == provider.backend {
+                activeProvider = nil
+            }
+        }
+        DiagnosticsLogger.voice.debug(
+            "VoiceManager transcript update backend=\(provider.backend.rawValue, privacy: .public) final=\(isFinal, privacy: .public) text=\(DiagnosticsLogger.truncated(transcript, limit: 240), privacy: .public)"
+        )
     }
 
-    private func isExpectedStopError(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSCocoaErrorDomain && nsError.code == 4099 {
-            return true
+    func speechProvider(_ provider: any SpeechRecognitionProviding, didFailWithMessage message: String) {
+        if provider.backend == .whisperKit, preferredBackend == .automatic, !isListening, !isProcessingSpeech {
+            DiagnosticsLogger.voice.notice("Automatic SR fallback switching from WhisperKit to Apple Speech")
+            activeBackend = .appleSpeech
+            activeProvider = appleProvider
+            error = nil
+            appleProvider.start(
+                configuration: SpeechRecognitionSessionConfiguration(
+                    locale: Locale.current,
+                    whisperKitModel: whisperKitModelIdentifier
+                )
+            )
+            return
         }
-        if nsError.domain == "kAFAssistantErrorDomain" {
-            return true
+
+        error = message
+        isProcessingSpeech = false
+        if activeBackend == provider.backend {
+            isListening = false
+            activeProvider = nil
         }
-        let message = nsError.localizedDescription.lowercased()
-        return message.contains("cancel") || message.contains("aborted")
+        DiagnosticsLogger.voice.error("VoiceManager backend failure \(provider.backend.rawValue, privacy: .public): \(message, privacy: .public)")
+    }
+
+    private func resolvedBackend(for preference: SpeechRecognitionBackend) -> SpeechRecognitionBackend {
+        switch preference {
+        case .automatic:
+            return whisperKitProvider.isSupported ? .whisperKit : .appleSpeech
+        case .appleSpeech:
+            return .appleSpeech
+        case .whisperKit:
+            return .whisperKit
+        }
+    }
+
+    private func provider(for backend: SpeechRecognitionBackend) -> any SpeechRecognitionProviding {
+        switch backend {
+        case .automatic:
+            return provider(for: resolvedBackend(for: .automatic))
+        case .appleSpeech:
+            return appleProvider
+        case .whisperKit:
+            return whisperKitProvider
+        }
+    }
+
+    private func unsupportedMessage(for backend: SpeechRecognitionBackend) -> String {
+        switch backend {
+        case .automatic:
+            return "No supported speech backend is available."
+        case .appleSpeech:
+            return "Apple Speech is unavailable on this device."
+        case .whisperKit:
+            return "WhisperKit is not linked in this build yet."
+        }
+    }
+
+    private func savePreferences() {
+        let defaults = UserDefaults.standard
+        defaults.set(preferredBackend.rawValue, forKey: Key.preferredBackend.rawValue)
+        defaults.set(whisperKitModelIdentifier, forKey: Key.whisperKitModelIdentifier.rawValue)
     }
 }

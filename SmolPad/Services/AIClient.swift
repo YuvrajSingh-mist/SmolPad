@@ -18,6 +18,7 @@ enum AIError: LocalizedError {
             "SmolPad cannot reach devices on your local network. Turn on Local Network for SmolPad in Settings, then try again."
         case .timedOut(let provider):
             switch provider {
+            case .onDevice: "The on-device model took too long to respond."
             case .ollama: "Local Ollama is still thinking. Try again with a smaller selected area, or wait for the model to warm up."
             case .mlx: "Local MLX is still thinking. Try again with a smaller selected area, or check that the MLX server is running."
             case .claude, .openai: "The request timed out."
@@ -68,10 +69,25 @@ struct AIClient {
         image: UIImage?,
         query: String,
         config: AIConfig,
-        history: [ChatMessage] = []
+        history: [ChatMessage] = [],
+        summary: String = ""
     ) async throws -> AsyncThrowingStream<StreamChunk, Error> {
+        if config.provider == .onDevice {
+            return try await OnDeviceTextClient.send(
+                image: image,
+                query: query,
+                config: config,
+                history: history,
+                summary: summary
+            )
+        }
+
+        DiagnosticsLogger.ai.info(
+            "Preparing AI request provider=\(config.provider.rawValue, privacy: .public) model=\(config.model, privacy: .public) historyCount=\(history.count, privacy: .public) summaryChars=\(summary.count, privacy: .public) hasImage=\(image != nil, privacy: .public) query=\(DiagnosticsLogger.truncated(query), privacy: .public)"
+        )
         let maxDimension: CGFloat
         switch config.provider {
+        case .onDevice: maxDimension = 1400
         case .ollama: maxDimension = 384
         case .mlx: maxDimension = 512
         case .claude, .openai: maxDimension = 1400
@@ -90,35 +106,61 @@ struct AIClient {
             b64 = nil
         }
 
-        let prompt = query
-        let request = try buildRequest(b64: b64, prompt: prompt, config: config, history: history)
+        let prompt: String
+        if config.inferencePath == .appleVisionOCRPlusText, let image {
+            let transcript = try await AppleVisionOCRService.recognizeText(in: image)
+            prompt = augmentedPrompt(
+                from: query,
+                transcript: transcript,
+                textModel: config.selectedTextModel
+            )
+            DiagnosticsLogger.ai.info(
+                "Apple Vision OCR prepared transcriptChars=\(transcript.fullText.count, privacy: .public) confidence=\(transcript.averageConfidence, privacy: .public) textModel=\(config.selectedTextModel.id, privacy: .public)"
+            )
+        } else {
+            prompt = query
+        }
+        let request = try buildRequest(
+            b64: b64,
+            prompt: prompt,
+            config: config,
+            history: history,
+            summary: summary
+        )
 
         return AsyncThrowingStream { continuation in
             let session = session(for: config.provider)
             let worker = Task {
                 do {
+                    DiagnosticsLogger.network.info("Starting streamed request to \(request.url?.absoluteString ?? "<nil>", privacy: .public)")
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
+                        DiagnosticsLogger.network.error("Received non-HTTP response")
                         continuation.finish(throwing: AIError.badStatus(0))
                         return
                     }
 
+                    DiagnosticsLogger.network.info("Received HTTP status \(http.statusCode, privacy: .public)")
                     guard http.statusCode == 200 else {
                         continuation.finish(throwing: AIError.badStatus(http.statusCode))
                         return
                     }
 
                     for try await line in bytes.lines {
+                        logIncomingStreamLine(line, provider: config.provider)
                         if let chunk = parseLine(line, provider: config.provider) {
                             continuation.yield(chunk)
                         }
                     }
 
+                    DiagnosticsLogger.ai.info("Streaming finished successfully for provider=\(config.provider.rawValue, privacy: .public)")
                     continuation.finish()
                 } catch is CancellationError {
+                    DiagnosticsLogger.ai.notice("Streaming cancelled for provider=\(config.provider.rawValue, privacy: .public)")
                     continuation.finish(throwing: AIError.cancelled)
                 } catch {
                     let nsError = error as NSError
+                    DiagnosticsLogger.ai.error("Streaming failed provider=\(config.provider.rawValue, privacy: .public) error=\(nsError.localizedDescription, privacy: .public)")
                     if nsError.code == NSURLErrorTimedOut {
                         continuation.finish(throwing: AIError.timedOut(config.provider))
                     } else if isLocalNetworkDenied(nsError) {
@@ -136,10 +178,41 @@ struct AIClient {
         }
     }
 
+    private static func augmentedPrompt(
+        from query: String,
+        transcript: OCRTranscript,
+        textModel: TextModelOption
+    ) -> String {
+        guard transcript.isUseful else {
+            return """
+            Preferred text-model profile: \(textModel.displayName) (\(textModel.runtime)).
+
+            User request: \(query)
+            """
+        }
+
+        let confidence = String(format: "%.2f", transcript.averageConfidence)
+        return """
+        Preferred text-model profile: \(textModel.displayName) (\(textModel.runtime)).
+        OCR mode: Apple Vision on-device.
+        OCR average confidence: \(confidence)
+
+        OCR transcript:
+        \(transcript.fullText)
+
+        Use the OCR transcript as the first pass, but verify against the image if symbols, layout, or handwriting seem ambiguous.
+
+        User request: \(query)
+        """
+    }
+
     private static func session(for provider: AIProvider) -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
         switch provider {
+        case .onDevice:
+            configuration.timeoutIntervalForRequest = 240
+            configuration.timeoutIntervalForResource = 300
         case .ollama:
             configuration.timeoutIntervalForRequest = 360
             configuration.timeoutIntervalForResource = 420
@@ -183,13 +256,16 @@ struct AIClient {
         b64: String?,
         prompt: String,
         config: AIConfig,
-        history: [ChatMessage] = []
+        history: [ChatMessage] = [],
+        summary: String = ""
     ) throws -> URLRequest {
         let urlString: String
         let headers: [String: String]
         let body: Any
 
         switch config.provider {
+        case .onDevice:
+            throw OnDeviceInferenceError.unsupportedInferencePath
         case .claude:
             guard !config.apiKey.isEmpty else { throw AIError.missingConfig }
             urlString = "https://api.anthropic.com/v1/messages"
@@ -198,6 +274,22 @@ struct AIClient {
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json"
             ]
+            let context = ConversationContextManager.buildContext(
+                prompt: prompt,
+                history: history,
+                summary: summary,
+                hasAttachedImage: b64 != nil
+            )
+            let systemPrompt = mergedSystemPrompt(from: context)
+            var messages: [[String: Any]] = []
+
+            for message in context.recentMessages {
+                messages.append([
+                    "role": message.role.rawValue,
+                    "content": message.content
+                ])
+            }
+
             var claudeContent: [[String: Any]] = []
             if let b64 {
                 claudeContent.append([
@@ -209,12 +301,14 @@ struct AIClient {
                     ]
                 ])
             }
-            claudeContent.append(["type": "text", "text": prompt])
+            claudeContent.append(["type": "text", "text": context.userPrompt])
+            messages.append(["role": "user", "content": claudeContent])
             body = [
                 "model": config.model,
                 "max_tokens": 2048,
                 "stream": true,
-                "messages": [["role": "user", "content": claudeContent]]
+                "system": systemPrompt,
+                "messages": messages
             ] as [String: Any]
 
         case .openai:
@@ -224,62 +318,61 @@ struct AIClient {
                 "Authorization": "Bearer \(config.apiKey)",
                 "Content-Type": "application/json"
             ]
-            var openAIContent: [[String: Any]] = []
-            if let b64 {
-                openAIContent.append([
-                    "type": "image_url",
-                    "image_url": ["url": "data:image/jpeg;base64,\(b64)"]
+            let context = ConversationContextManager.buildContext(
+                prompt: prompt,
+                history: history,
+                summary: summary,
+                hasAttachedImage: b64 != nil
+            )
+            let systemPrompt = mergedSystemPrompt(from: context)
+            var messages: [[String: Any]] = [
+                ["role": "system", "content": systemPrompt]
+            ]
+
+            for message in context.recentMessages {
+                messages.append([
+                    "role": message.role.rawValue,
+                    "content": message.content
                 ])
             }
-            openAIContent.append(["type": "text", "text": prompt])
+
+            messages.append([
+                "role": "user",
+                "content": openAIUserContent(text: context.userPrompt, imageBase64: b64)
+            ])
             body = [
                 "model": config.model,
                 "stream": true,
-                "messages": [["role": "user", "content": openAIContent]]
+                "messages": messages
             ] as [String: Any]
 
         case .mlx:
             guard !config.mlxURL.isEmpty else { throw AIError.missingConfig }
             urlString = "\(config.mlxURL)/v1/chat/completions"
             headers = ["Content-Type": "application/json"]
-            let historyContext = buildHistoryContext(from: history)
-            let systemText: String
-            if b64 != nil {
-                systemText = """
-                You are a helpful AI assistant in an ongoing multi-turn conversation about the same selected handwritten note.
-                Read the handwritten note carefully. If it contains math, transcribe the expression exactly as written, then solve it step by step with clear reasoning.
-                Use the prior conversation to answer follow-up questions about what the user previously asked, what you previously answered, or what is shown in the selected note.
-                If the user asks about the previous turn, rely on the conversation history instead of acting like this is a fresh chat.
-                Keep formatting elegant and easy to scan with short paragraphs, bullets when useful, and math written cleanly.
-                Prefer plain readable math notation over raw LaTeX. Only use LaTeX when it is genuinely necessary.
-                \(historyContext.isEmpty ? "" : "\nConversation so far:\n\(historyContext)")
-                """
-            } else {
-                systemText = """
-                You are a helpful AI assistant in an ongoing multi-turn conversation.
-                Use the prior conversation to answer follow-up questions about what the user previously asked or what you previously answered.
-                Think step by step, explain your reasoning clearly, and provide accurate, well-formatted answers.
-                Prefer plain readable math notation over raw LaTeX. Only use LaTeX when it is genuinely necessary.
-                \(historyContext.isEmpty ? "" : "\nConversation so far:\n\(historyContext)")
-                """
-            }
+            let context = ConversationContextManager.buildContext(
+                prompt: prompt,
+                history: history,
+                summary: summary,
+                hasAttachedImage: b64 != nil
+            )
+            let systemPrompt = mergedSystemPrompt(from: context)
 
             var messages: [[String: Any]] = [
-                ["role": "system", "content": [["type": "text", "text": systemText]]]
+                ["role": "system", "content": systemPrompt]
             ]
 
-            // Add conversation history (text-only)
-            for msg in history {
-                messages.append(["role": msg.role.rawValue, "content": [["type": "text", "text": msg.content]]])
+            for msg in context.recentMessages {
+                messages.append([
+                    "role": msg.role.rawValue,
+                    "content": msg.content
+                ])
             }
 
-            // Current user message
-            var userContent: [[String: Any]] = []
-            if let b64 {
-                userContent.append(["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\(b64)"]])
-            }
-            userContent.append(["type": "text", "text": buildContextualPrompt(prompt: prompt, history: history, hasAttachedImage: b64 != nil)])
-            messages.append(["role": "user", "content": userContent])
+            messages.append([
+                "role": "user",
+                "content": mlxUserContent(text: context.userPrompt, imageBase64: b64)
+            ])
 
             body = [
                 "model": config.model,
@@ -323,11 +416,60 @@ struct AIClient {
         request.timeoutInterval = config.provider == .ollama ? 360 : 180
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+        DiagnosticsLogger.ai.debug("Built request payload:\n\(DiagnosticsLogger.jsonPreview(from: body), privacy: .public)")
         return request
+    }
+
+    private static func mergedSystemPrompt(from context: ManagedConversationContext) -> String {
+        guard let summaryMessage = context.summaryMessage else {
+            return context.systemPrompt
+        }
+
+        return """
+        \(context.systemPrompt)
+
+        \(summaryMessage.content)
+        """
+    }
+
+    private static func openAIUserContent(text: String, imageBase64: String?) -> Any {
+        guard let imageBase64 else {
+            return text
+        }
+
+        return [
+            [
+                "type": "image_url",
+                "image_url": ["url": "data:image/jpeg;base64,\(imageBase64)"]
+            ],
+            [
+                "type": "text",
+                "text": text
+            ]
+        ]
+    }
+
+    private static func mlxUserContent(text: String, imageBase64: String?) -> Any {
+        guard let imageBase64 else {
+            return text
+        }
+
+        return [
+            [
+                "type": "image_url",
+                "image_url": ["url": "data:image/jpeg;base64,\(imageBase64)"]
+            ],
+            [
+                "type": "text",
+                "text": text
+            ]
+        ]
     }
 
     private static func parseLine(_ line: String, provider: AIProvider) -> StreamChunk? {
         switch provider {
+        case .onDevice:
+            return nil
         case .claude:
             guard let json = streamJSONObject(from: line),
                   let delta = json["delta"] as? [String: Any],
@@ -402,6 +544,12 @@ struct AIClient {
         return json
     }
 
+    private static func logIncomingStreamLine(_ line: String, provider: AIProvider) {
+        let preview = DiagnosticsLogger.truncated(line, limit: 500)
+        guard !preview.isEmpty else { return }
+        DiagnosticsLogger.ai.debug("SSE line provider=\(provider.rawValue, privacy: .public): \(preview, privacy: .public)")
+    }
+
     private static func isLocalNetworkDenied(_ error: NSError) -> Bool {
         guard error.code == NSURLErrorNotConnectedToInternet else { return false }
         return String(describing: error.userInfo).localizedCaseInsensitiveContains("local network prohibited")
@@ -449,39 +597,4 @@ struct AIClient {
         .joined()
     }
 
-    private static func buildHistoryContext(from history: [ChatMessage], limit: Int = 6) -> String {
-        history.suffix(limit).map { message in
-            let role: String
-            switch message.role {
-            case .assistant: role = "Assistant"
-            case .user: role = "User"
-            case .system: role = "System"
-            }
-            let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !content.isEmpty else { return nil }
-            return "\(role): \(content)"
-        }
-        .compactMap { $0 }
-        .joined(separator: "\n")
-    }
-
-    private static func buildContextualPrompt(
-        prompt: String,
-        history: [ChatMessage],
-        hasAttachedImage: Bool
-    ) -> String {
-        let historyContext = buildHistoryContext(from: history)
-        var sections: [String] = []
-
-        if hasAttachedImage {
-            sections.append("The attached image is the same selected note for this chat unless the user selects a new region.")
-        }
-
-        if !historyContext.isEmpty {
-            sections.append("Recent conversation:\n\(historyContext)")
-        }
-
-        sections.append("Current user request:\n\(prompt)")
-        return sections.joined(separator: "\n\n")
-    }
 }
