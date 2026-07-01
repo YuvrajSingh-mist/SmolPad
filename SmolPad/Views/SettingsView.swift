@@ -50,6 +50,32 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if config.provider == .llamaCpp {
+                    Section("llama.cpp Model") {
+                        Picker("Preset", selection: $config.model) {
+                            ForEach(LlamaCppModelCatalog.options) { option in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.displayName).tag(option.id)
+                                    Text(option.estimatedFootprint)
+                                }
+                                .tag(option.id)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(config.selectedLlamaCppModel.estimatedFootprint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(config.selectedLlamaCppModel.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("Install the GGUF text model and its matching `mmproj` file inside `Application Support/Models/llama.cpp/\(config.model)/` or `Documents/Models/llama.cpp/\(config.model)/`.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 if config.inferencePath == .appleVisionOCRPlusText {
                     Section("OCR") {
                         Picker("Backend", selection: $config.ocrBackend) {
@@ -68,7 +94,7 @@ struct SettingsView: View {
                             ForEach(TextModelCatalog.options) { option in
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(option.displayName).tag(option.id)
-                                    Text(option.runtime)
+                                    Text(option.recommendedProfile ?? option.runtime)
                                 }
                                 .tag(option.id)
                             }
@@ -78,15 +104,14 @@ struct SettingsView: View {
                             Text(config.selectedTextModel.runtime)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let recommendedProfile = config.selectedTextModel.recommendedProfile {
+                                Text(recommendedProfile)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(config.selectedTextModel.summary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        }
-
-                        if config.provider == .onDevice && !OnDeviceTextClient.isRuntimeAvailable {
-                            Text("Mirai/Uzu is unavailable for the current iOS 17 deployment target, so this mode cannot run until we switch to a compatible on-device runtime or raise the app target.")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
                         }
                     }
                 }
@@ -94,6 +119,15 @@ struct SettingsView: View {
                 switch config.provider {
                 case .onDevice:
                     EmptyView()
+                case .llamaCpp:
+                    Section("Embedded Runtime") {
+                        Text("Primary path: embedded `llama.cpp` + `libmtmd` with local GGUF files.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Fallback path: `Uzu` OCR + text only when the local VLM files are missing or fail to load.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 case .claude, .openai:
                     Section("API Key") {
                         SecureField("Paste your API key", text: $config.apiKey)
@@ -116,14 +150,16 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Model") {
-                    TextField("Model name", text: $config.model)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
+                if config.provider != .llamaCpp {
+                    Section("Model") {
+                        TextField("Model name", text: $config.model)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
 
-                    Text(modelHint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        Text(modelHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Speech Input") {
@@ -159,7 +195,7 @@ struct SettingsView: View {
                 Section {
                     EmptyView()
                 } footer: {
-                    Text("Your API key is stored locally on this device only. Existing MLX and Ollama endpoints remain available. In Vision OCR + Text mode, SmolPad first extracts note text on-device before building the final request.")
+                    Text("Your API key is stored locally on this device only. `llama.cpp` is the primary on-device multimodal path here, and `Uzu` stays available only as a fallback when the embedded VLM assets are unavailable.")
                         .font(.caption)
                 }
             }
@@ -180,6 +216,7 @@ struct SettingsView: View {
     private var modelHint: String {
         switch config.provider {
         case .onDevice: "Uses the selected on-device text model via Mirai."
+        case .llamaCpp: "Uses the selected embedded GGUF preset."
         case .claude: "e.g. claude-opus-4-6, claude-sonnet-4-6"
         case .openai: "e.g. gpt-4o, gpt-4o-mini"
         case .ollama: "e.g. gemma3:4b"

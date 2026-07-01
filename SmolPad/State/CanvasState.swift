@@ -168,7 +168,7 @@ final class CanvasState {
     }
 
     func clearChatSession() {
-        DiagnosticsLogger.app.notice("Clearing chat session conversationCount=\(conversation.count, privacy: .public)")
+        DiagnosticsLogger.app.notice("Clearing chat session conversationCount=\(self.conversation.count, privacy: .public)")
         streamingTask?.cancel()
         streamingTask = nil
         chatDraft = ""
@@ -208,7 +208,7 @@ final class CanvasState {
         guard !userQuery.isEmpty else { return }
 
         DiagnosticsLogger.app.info(
-            "Sending query provider=\(config.provider.rawValue, privacy: .public) query=\(DiagnosticsLogger.truncated(userQuery), privacy: .public) conversationCount=\(conversation.count, privacy: .public) hasImage=\(capturedImage != nil, privacy: .public)"
+            "Sending query provider=\(config.provider.rawValue, privacy: .public) query=\(DiagnosticsLogger.truncated(userQuery), privacy: .public) conversationCount=\(self.conversation.count, privacy: .public) hasImage=\(self.capturedImage != nil, privacy: .public)"
         )
 
         resetStreamingPresentation()
@@ -217,6 +217,7 @@ final class CanvasState {
         chatDraft = ""
 
         let task = Task {
+            let suppressThinking = config.provider == .llamaCpp
             do {
                 let stream = try await AIClient.send(
                     image: capturedImage,
@@ -229,15 +230,15 @@ final class CanvasState {
                 for try await chunk in stream {
                     if Task.isCancelled { break }
                     await MainActor.run {
-                        present(chunk: chunk)
+                        present(chunk: chunk, suppressThinking: suppressThinking)
                     }
                 }
 
                 await MainActor.run {
                     if Task.isCancelled {
-                        finishCancellation()
+                        finishCancellation(suppressThinking: suppressThinking)
                     } else {
-                        commitCompletedTurn(for: userQuery)
+                        commitCompletedTurn(for: userQuery, suppressThinking: suppressThinking)
                     }
                     DiagnosticsLogger.app.info("Completed query successfully")
                     isStreaming = false
@@ -248,7 +249,7 @@ final class CanvasState {
 
                 await MainActor.run {
                     if let aiError = error as? AIError, case .cancelled = aiError {
-                        finishCancellation()
+                        finishCancellation(suppressThinking: suppressThinking)
                     } else {
                         present(error: error)
                     }
@@ -320,29 +321,53 @@ final class CanvasState {
         return hasher.finalize()
     }
 
-    private func present(chunk: StreamChunk) {
-        if chunk.isThinking {
+    private func present(chunk: StreamChunk, suppressThinking: Bool) {
+        if chunk.isThinking && !suppressThinking {
             streamThinking += chunk.text
         } else {
             streamResponse += chunk.text
         }
         DiagnosticsLogger.ai.debug(
-            "Presented chunk kind=\(chunk.isThinking ? "thinking" : "response", privacy: .public) chunkChars=\(chunk.text.count, privacy: .public) totalResponseChars=\(streamResponse.count, privacy: .public) totalThinkingChars=\(streamThinking.count, privacy: .public)"
+            "Presented chunk kind=\(chunk.isThinking ? "thinking" : "response", privacy: .public) chunkChars=\(chunk.text.count, privacy: .public) totalResponseChars=\(self.streamResponse.count, privacy: .public) totalThinkingChars=\(self.streamThinking.count, privacy: .public)"
         )
     }
 
-    private func commitCompletedTurn(for userQuery: String) {
-        appendConversationTurn(user: userQuery, assistant: streamResponse, thinking: streamThinking)
+    private func commitCompletedTurn(for userQuery: String, suppressThinking: Bool) {
+        appendConversationTurn(
+            user: userQuery,
+            assistant: streamResponse,
+            thinking: suppressThinking ? nil : streamThinking
+        )
         pendingUserQuery = nil
         resetStreamingPresentation()
     }
 
-    private func finishCancellation() {
-        if let pendingUserQuery {
+    private func finishCancellation(suppressThinking: Bool) {
+        if let pendingUserQuery = pendingUserQuery {
+            let partialResponse = streamResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+            let partialThinking = streamThinking.trimmingCharacters(in: .whitespacesAndNewlines)
+
             appendUserMessage(pendingUserQuery)
             self.pendingUserQuery = nil
+
+            if !partialResponse.isEmpty || !partialThinking.isEmpty {
+                appendAssistantMessage(
+                    partialResponse,
+                    thinking: suppressThinking || partialThinking.isEmpty ? nil : partialThinking
+                )
+            }
         }
-        DiagnosticsLogger.app.notice("Stream cancelled; preserved pending user message if any")
+
+        let compacted = ConversationContextManager.compact(
+            history: conversation,
+            existingSummary: conversationSummary
+        )
+        conversation = compacted.recentMessages
+        conversationSummary = compacted.summary
+
+        DiagnosticsLogger.app.notice(
+            "Stream cancelled; preserved pending turn userPresent=\(self.pendingUserQuery == nil, privacy: .public) partialResponseChars=\(self.streamResponse.count, privacy: .public) partialThinkingChars=\(self.streamThinking.count, privacy: .public)"
+        )
         resetStreamingPresentation()
     }
 

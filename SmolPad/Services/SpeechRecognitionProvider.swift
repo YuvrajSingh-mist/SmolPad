@@ -24,12 +24,14 @@ struct SpeechRecognitionSessionConfiguration {
     let whisperKitModel: String
 }
 
+@MainActor
 protocol SpeechRecognitionProviderDelegate: AnyObject {
     func speechProvider(_ provider: SpeechRecognitionProviding, didChangeListeningState isListening: Bool)
     func speechProvider(_ provider: SpeechRecognitionProviding, didUpdateTranscript transcript: String, isFinal: Bool)
     func speechProvider(_ provider: SpeechRecognitionProviding, didFailWithMessage message: String)
 }
 
+@MainActor
 protocol SpeechRecognitionProviding: AnyObject {
     var backend: SpeechRecognitionBackend { get }
     var displayName: String { get }

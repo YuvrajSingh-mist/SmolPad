@@ -1,5 +1,5 @@
 {
-  "originHash" : "ac0811c2c9e2c5116599ce0644e0220c044d1c68b693124ff648bdb7a1915176",
+  "originHash" : "9234dd105d3dd3748f7be952fbe0034014d8cad96a34442ebf44a825779f3da3",
   "pins" : [
     {
       "identity" : "argmax-oss-swift",
@@ -98,6 +98,15 @@
       "state" : {
         "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
         "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "uzu",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/trymirai/uzu.git",
+      "state" : {
+        "revision" : "0ebcf227869684dcf6928c47d282da35c116d396",
+        "version" : "0.5.12"
       }
     },
     {

@@ -3,6 +3,7 @@ import UIKit
 
 enum AIError: LocalizedError {
     case missingConfig
+    case missingServerURL(AIProvider)
     case badStatus(Int)
     case invalidURL
     case localNetworkDenied
@@ -12,6 +13,19 @@ enum AIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfig: "API key or server URL is not configured."
+        case .missingServerURL(let provider):
+            switch provider {
+            case .llamaCpp:
+                "The embedded llama.cpp model files are missing. Add the GGUF model and mmproj files on-device, then try again."
+            case .mlx:
+                "The MLX server URL is empty. Open Settings and set the MLX server address."
+            case .ollama:
+                "The Ollama server URL is empty. Open Settings and set the Ollama server address."
+            case .onDevice:
+                "The on-device runtime is not configured."
+            case .claude, .openai:
+                "The API key is missing."
+            }
         case .badStatus(let code): "Server returned HTTP \(code)."
         case .invalidURL: "Invalid server URL."
         case .localNetworkDenied:
@@ -19,6 +33,7 @@ enum AIError: LocalizedError {
         case .timedOut(let provider):
             switch provider {
             case .onDevice: "The on-device model took too long to respond."
+            case .llamaCpp: "The embedded llama.cpp model is still thinking. Try the 3B Q4 profile or reduce the selected area."
             case .ollama: "Local Ollama is still thinking. Try again with a smaller selected area, or wait for the model to warm up."
             case .mlx: "Local MLX is still thinking. Try again with a smaller selected area, or check that the MLX server is running."
             case .claude, .openai: "The request timed out."
@@ -82,12 +97,23 @@ struct AIClient {
             )
         }
 
+        if config.provider == .llamaCpp {
+            return try await EmbeddedLlamaVisionClient.send(
+                image: image,
+                query: query,
+                config: config,
+                history: history,
+                summary: summary
+            )
+        }
+
         DiagnosticsLogger.ai.info(
             "Preparing AI request provider=\(config.provider.rawValue, privacy: .public) model=\(config.model, privacy: .public) historyCount=\(history.count, privacy: .public) summaryChars=\(summary.count, privacy: .public) hasImage=\(image != nil, privacy: .public) query=\(DiagnosticsLogger.truncated(query), privacy: .public)"
         )
         let maxDimension: CGFloat
         switch config.provider {
         case .onDevice: maxDimension = 1400
+        case .llamaCpp: maxDimension = 1024
         case .ollama: maxDimension = 384
         case .mlx: maxDimension = 512
         case .claude, .openai: maxDimension = 1400
@@ -213,6 +239,9 @@ struct AIClient {
         case .onDevice:
             configuration.timeoutIntervalForRequest = 240
             configuration.timeoutIntervalForResource = 300
+        case .llamaCpp:
+            configuration.timeoutIntervalForRequest = 360
+            configuration.timeoutIntervalForResource = 420
         case .ollama:
             configuration.timeoutIntervalForRequest = 360
             configuration.timeoutIntervalForResource = 420
@@ -241,12 +270,12 @@ struct AIClient {
         let targetSize = CGSize(width: targetWidth, height: targetHeight)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1.0
-        format.opaque = false
+        format.opaque = true
         format.preferredRange = .standard
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
 
         return renderer.image { ctx in
-            UIColor.clear.setFill()
+            UIColor.white.setFill()
             ctx.fill(CGRect(origin: .zero, size: targetSize))
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
@@ -266,6 +295,8 @@ struct AIClient {
         switch config.provider {
         case .onDevice:
             throw OnDeviceInferenceError.unsupportedInferencePath
+        case .llamaCpp:
+            throw AIError.missingServerURL(.llamaCpp)
         case .claude:
             guard !config.apiKey.isEmpty else { throw AIError.missingConfig }
             urlString = "https://api.anthropic.com/v1/messages"
@@ -347,7 +378,7 @@ struct AIClient {
             ] as [String: Any]
 
         case .mlx:
-            guard !config.mlxURL.isEmpty else { throw AIError.missingConfig }
+            guard !config.mlxURL.isEmpty else { throw AIError.missingServerURL(.mlx) }
             urlString = "\(config.mlxURL)/v1/chat/completions"
             headers = ["Content-Type": "application/json"]
             let context = ConversationContextManager.buildContext(
@@ -384,7 +415,7 @@ struct AIClient {
             ] as [String: Any]
 
         case .ollama:
-            guard !config.ollamaURL.isEmpty else { throw AIError.missingConfig }
+            guard !config.ollamaURL.isEmpty else { throw AIError.missingServerURL(.ollama) }
             urlString = "\(config.ollamaURL)/api/chat"
             headers = ["Content-Type": "application/json"]
             let ollamaPrompt = """
@@ -413,7 +444,7 @@ struct AIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = config.provider == .ollama ? 360 : 180
+        request.timeoutInterval = (config.provider == .ollama || config.provider == .llamaCpp) ? 360 : 180
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         DiagnosticsLogger.ai.debug("Built request payload:\n\(DiagnosticsLogger.jsonPreview(from: body), privacy: .public)")
@@ -477,7 +508,7 @@ struct AIClient {
             else { return nil }
             return StreamChunk(text: text)
 
-        case .openai, .mlx:
+        case .openai, .mlx, .llamaCpp:
             guard let json = streamJSONObject(from: line),
                   let choices = json["choices"] as? [[String: Any]]
             else { return nil }

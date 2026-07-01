@@ -9,6 +9,11 @@ struct ChatPanelView: View {
     @Environment(\.openURL) private var openURL
     @FocusState private var queryFocused: Bool
     @State private var scrollTick = 0
+    @StateObject private var onDeviceRuntimeStatus = OnDeviceRuntimeStatus.shared
+
+    private var showsThinkingUI: Bool {
+        config.provider != .llamaCpp
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -72,7 +77,7 @@ struct ChatPanelView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 // Conversation history
                                 ForEach(Array(state.conversation.enumerated()), id: \.offset) { _, msg in
-                                    MessageBubbleView(message: msg)
+                                    MessageBubbleView(message: msg, showsThinking: showsThinkingUI)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 8)
                                 }
@@ -108,9 +113,9 @@ struct ChatPanelView: View {
                                         .foregroundStyle(.red)
                                         .padding(.horizontal, 20)
                                         .padding(.vertical, 10)
-                                } else if !state.streamThinking.isEmpty || !state.streamResponse.isEmpty {
+                                } else if (!state.streamThinking.isEmpty && showsThinkingUI) || !state.streamResponse.isEmpty {
                                     Group {
-                                        if !state.streamThinking.isEmpty {
+                                        if showsThinkingUI && !state.streamThinking.isEmpty {
                                             ThinkingSectionView(
                                                 thinking: state.streamThinking,
                                                 isExpanded: $state.isThinkingExpanded,
@@ -121,7 +126,7 @@ struct ChatPanelView: View {
 
                                         if !state.streamResponse.isEmpty {
                                             MarkdownTextView(text: state.streamResponse, textColor: .white, baseFontSize: 16, spacing: 10)
-                                                .padding(.top, state.streamThinking.isEmpty ? 0 : 6)
+                                                .padding(.top, !showsThinkingUI || state.streamThinking.isEmpty ? 0 : 6)
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,6 +216,12 @@ struct ChatPanelView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
+
+                    if (config.provider == .onDevice || config.provider == .llamaCpp) && onDeviceRuntimeStatus.isVisible {
+                        OnDeviceRuntimeStatusView(status: onDeviceRuntimeStatus)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                    }
 
                     HStack(spacing: 10) {
                         TextField("Ask about this...", text: $state.chatDraft)
@@ -335,8 +346,83 @@ struct ChatPanelView: View {
     }
 }
 
+private struct OnDeviceRuntimeStatusView: View {
+    @ObservedObject var status: OnDeviceRuntimeStatus
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(iconColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(status.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+
+                if !status.detail.isEmpty {
+                    Text(status.detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            if case .downloading = status.phase {
+                ProgressView(value: status.progressFraction)
+                    .progressViewStyle(.linear)
+                    .frame(width: 72)
+                    .tint(Color(red: 0.55, green: 0.83, blue: 0.96))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.055))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                }
+        )
+    }
+
+    private var iconName: String {
+        switch status.phase {
+        case .idle:
+            return "circle"
+        case .preparing:
+            return "shippingbox"
+        case .downloading:
+            return "arrow.down.circle"
+        case .ready:
+            return "checkmark.circle"
+        case .generating:
+            return "cpu"
+        case .failed:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private var iconColor: Color {
+        switch status.phase {
+        case .idle:
+            return .white.opacity(0.5)
+        case .preparing, .downloading, .generating:
+            return Color(red: 0.55, green: 0.83, blue: 0.96)
+        case .ready:
+            return Color.green.opacity(0.9)
+        case .failed:
+            return Color.red.opacity(0.9)
+        }
+    }
+}
+
 private struct MessageBubbleView: View {
     let message: ChatMessage
+    let showsThinking: Bool
 
     var body: some View {
         let isUser = message.role == .user
@@ -350,18 +436,21 @@ private struct MessageBubbleView: View {
                         : Color.white.opacity(0.52)
                 )
 
-            if message.role == .assistant,
+            if showsThinking,
+               message.role == .assistant,
                let priorThinking = message.thinking,
                !priorThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 PastThinkingView(thinking: priorThinking)
             }
 
-            MarkdownTextView(
-                text: message.content,
-                textColor: .white,
-                baseFontSize: isUser ? 15 : 16,
-                spacing: isUser ? 8 : 10
-            )
+            if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                MarkdownTextView(
+                    text: message.content,
+                    textColor: .white,
+                    baseFontSize: isUser ? 15 : 16,
+                    spacing: isUser ? 8 : 10
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)

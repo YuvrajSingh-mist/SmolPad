@@ -90,20 +90,19 @@ enum ConversationContextManager {
     private static func buildSystemPrompt(hasAttachedImage: Bool) -> String {
         var sections: [String] = [
             """
-            You are a careful AI assistant in a multi-turn conversation.
-            Preserve conversational continuity, but never let stale context override the current turn.
+            You are a careful AI assistant in a multi-turn conversation about the user's note.
             """,
             """
-            Use previous turns only for follow-ups, references like "that", "this", or "what did I ask before", and continuity about the same selected note.
+            Use previous turns only for follow-ups, references like "that", "this", or "what did I ask before".
             """,
             """
-            If the user asks what they just said, what they asked previously, or refers to the immediately preceding turn, answer from the conversation history directly and explicitly.
+            If the user asks what they just said or asked previously, answer directly from the chat history.
             """,
             """
-            If the current turn contains new evidence that conflicts with earlier turns, explicitly trust the current turn and say the earlier context may have referred to a different note or selection.
+            Do not say context is missing if the needed context is already present in the recent chat or summary.
             """,
             """
-            Keep answers well-structured, readable, and faithful to the provided evidence.
+            Keep answers readable, faithful to the evidence, and concise unless the user asks for more detail.
             Prefer plain readable math notation over raw LaTeX unless exact notation is necessary.
             """
         ]
@@ -111,7 +110,7 @@ enum ConversationContextManager {
         if hasAttachedImage {
             sections.append(
                 """
-                A new image is attached on this turn. Treat the attached image as the primary source of truth for what is currently on the note.
+                A new image is attached on this turn. Treat the image as the primary source of truth for the current note.
                 """
             )
         }
@@ -122,15 +121,14 @@ enum ConversationContextManager {
     private static func buildUserPrompt(prompt: String, hasAttachedImage: Bool) -> String {
         if hasAttachedImage {
             return """
-            The attached image is the note the user is currently asking about.
-
-            Current user request:
+            The attached image is the note the user is asking about.
+            User request:
             \(prompt)
             """
         }
 
         return """
-        Current user request:
+        User request:
         \(prompt)
         """
     }

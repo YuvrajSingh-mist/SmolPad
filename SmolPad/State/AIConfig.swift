@@ -3,6 +3,7 @@ import Observation
 
 enum AIProvider: String, CaseIterable, Identifiable {
     case onDevice = "On Device"
+    case llamaCpp = "llama.cpp"
     case claude = "Claude"
     case openai = "OpenAI"
     case ollama = "Ollama"
@@ -13,6 +14,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var defaultModel: String {
         switch self {
         case .onDevice: TextModelCatalog.defaultOptionID
+        case .llamaCpp: LlamaCppModelCatalog.defaultOptionID
         case .claude: "claude-opus-4-6"
         case .openai: "gpt-4o"
         case .ollama: "gemma3:4b"
@@ -50,42 +52,85 @@ enum OCRBackend: String, CaseIterable, Identifiable {
     }
 }
 
+struct LlamaCppModelOption: Identifiable, Hashable {
+    let id: String
+    let displayName: String
+    let summary: String
+    let estimatedFootprint: String
+}
+
+enum LlamaCppModelCatalog {
+    static let options: [LlamaCppModelOption] = [
+        LlamaCppModelOption(
+            id: "Qwen2.5-VL-3B-Instruct-Q4_K_M",
+            displayName: "Qwen 2.5 VL 3B Q4_K_M",
+            summary: "Safest default for multi-turn VLM on constrained devices and local quantized llama.cpp deployments.",
+            estimatedFootprint: "~3 GB total including the vision projector"
+        ),
+        LlamaCppModelOption(
+            id: "Qwen2.5-VL-3B-Instruct-Q5_K_M",
+            displayName: "Qwen 2.5 VL 3B Q5_K_M",
+            summary: "Higher quality than Q4_K_M with a moderate storage and memory increase.",
+            estimatedFootprint: "~3.5 GB total including the vision projector"
+        ),
+        LlamaCppModelOption(
+            id: "Qwen2.5-VL-7B-Instruct-Q4_K_M",
+            displayName: "Qwen 2.5 VL 7B Q4_K_M",
+            summary: "Use only when you have plenty of RAM and want better visual reasoning than the 3B models.",
+            estimatedFootprint: "~5.5 to 6.5 GB total including the vision projector"
+        )
+    ]
+
+    static let defaultOptionID = "Qwen2.5-VL-3B-Instruct-Q4_K_M"
+
+    static func option(for id: String) -> LlamaCppModelOption? {
+        options.first { $0.id == id }
+    }
+
+    static let recommendedLaunchFlags = "--jinja --flash-attn --ctx-size 4096 --n-gpu-layers 99 --parallel 1"
+}
+
 struct TextModelOption: Identifiable, Hashable {
     let id: String
     let displayName: String
     let runtime: String
     let summary: String
+    let recommendedProfile: String?
 }
 
 enum TextModelCatalog {
     static let options: [TextModelOption] = [
         TextModelOption(
-            id: "trymirai/Qwen3.5-4B-L",
-            displayName: "Qwen 3.5 4B L",
+            id: "trymirai/Qwen3.5-2B-M",
+            displayName: "Qwen 3.5 2B M",
             runtime: "Mirai",
-            summary: "Default on-device choice. Best balance of speed, memory, and conversation quality."
-        ),
-        TextModelOption(
-            id: "mlx-community/gemma-3-4b-it-4bit",
-            displayName: "Gemma 3 4B 4-bit",
-            runtime: "MLX / Mirai-ready",
-            summary: "Strong reasoning fallback with a compact 4-bit footprint."
+            summary: "Best default for 6 GB iPads. Lowest memory pressure while keeping chat quality solid.",
+            recommendedProfile: "Recommended for 6 GB RAM"
         ),
         TextModelOption(
             id: "trymirai/Qwen3.5-2B-L",
             displayName: "Qwen 3.5 2B L",
             runtime: "Mirai",
-            summary: "Speed mode for lower latency and memory use."
+            summary: "Higher-quality 2B option when you want better answers and can trade some latency.",
+            recommendedProfile: "Recommended quality upgrade"
         ),
         TextModelOption(
-            id: "mlx-community/gemma-3-4b-it-8bit",
-            displayName: "Gemma 3 4B 8-bit",
-            runtime: "MLX / Mirai-ready",
-            summary: "Higher-quality Gemma option when memory headroom allows."
+            id: "trymirai/Qwen3.5-0.8B-L",
+            displayName: "Qwen 3.5 0.8B L",
+            runtime: "Mirai",
+            summary: "Fast fallback for tighter memory budgets and quickest startup.",
+            recommendedProfile: "Recommended fast fallback"
+        ),
+        TextModelOption(
+            id: "trymirai/Qwen3.5-4B-M",
+            displayName: "Qwen 3.5 4B M",
+            runtime: "Mirai",
+            summary: "Optional higher-capability model. Use only on devices with enough free RAM.",
+            recommendedProfile: "Use with care on 6 GB RAM"
         )
     ]
 
-    static let defaultOptionID = "trymirai/Qwen3.5-4B-L"
+    static let defaultOptionID = "trymirai/Qwen3.5-2B-M"
 
     static func option(for id: String) -> TextModelOption? {
         options.first { $0.id == id }
@@ -94,11 +139,9 @@ enum TextModelCatalog {
 
 @Observable
 final class AIConfig {
-    private static let currentHost = "192.168.1.8"
-    private static let staleHosts = ["192.168.1.21", "192.168.1.100", "127.0.0.1", "localhost"]
-
     var provider: AIProvider
     var apiKey: String
+    var llamaCppURL: String
     var ollamaURL: String
     var mlxURL: String
     var model: String
@@ -109,6 +152,7 @@ final class AIConfig {
     private enum Key: String {
         case provider
         case apiKey
+        case llamaCppURL
         case ollamaURL
         case mlxURL
         case model
@@ -120,14 +164,22 @@ final class AIConfig {
     init() {
         let defaults = UserDefaults.standard
         let savedProviderRaw = defaults.string(forKey: Key.provider.rawValue) ?? ""
-        provider = AIProvider(rawValue: savedProviderRaw) ?? .mlx
+        let resolvedProvider = AIProvider(rawValue: savedProviderRaw) ?? .llamaCpp
+        provider = resolvedProvider
         apiKey = defaults.string(forKey: Key.apiKey.rawValue) ?? ""
         let savedOllamaURL = defaults.string(forKey: Key.ollamaURL.rawValue) ?? ""
-        ollamaURL = Self.normalizedServerURL(savedOllamaURL, port: 11434)
         let savedMLXURL = defaults.string(forKey: Key.mlxURL.rawValue) ?? ""
+        let savedLlamaCppURL = defaults.string(forKey: Key.llamaCppURL.rawValue) ?? ""
+        llamaCppURL = Self.normalizedServerURL(
+            savedLlamaCppURL.isEmpty
+                ? Self.inferredLlamaCppURL(mlxURL: savedMLXURL, ollamaURL: savedOllamaURL)
+                : savedLlamaCppURL,
+            port: 8081
+        )
+        ollamaURL = Self.normalizedServerURL(savedOllamaURL, port: 11434)
         mlxURL = Self.normalizedServerURL(savedMLXURL, port: 8080)
         let savedModel = defaults.string(forKey: Key.model.rawValue) ?? ""
-        let defaultModel = provider.defaultModel
+        let defaultModel = resolvedProvider.defaultModel
         model = savedModel.isEmpty ? defaultModel : savedModel
         let savedInferencePath = defaults.string(forKey: Key.inferencePath.rawValue) ?? ""
         inferencePath = InferencePath(rawValue: savedInferencePath) ?? .directVLM
@@ -140,6 +192,7 @@ final class AIConfig {
         applyProviderDefaultsIfNeeded()
 
         if provider.rawValue != savedProviderRaw
+            || savedLlamaCppURL != llamaCppURL
             || savedOllamaURL != ollamaURL
             || savedMLXURL != mlxURL
             || savedModel != model
@@ -154,6 +207,7 @@ final class AIConfig {
         let defaults = UserDefaults.standard
         defaults.set(provider.rawValue, forKey: Key.provider.rawValue)
         defaults.set(apiKey, forKey: Key.apiKey.rawValue)
+        defaults.set(llamaCppURL, forKey: Key.llamaCppURL.rawValue)
         defaults.set(ollamaURL, forKey: Key.ollamaURL.rawValue)
         defaults.set(mlxURL, forKey: Key.mlxURL.rawValue)
         defaults.set(model, forKey: Key.model.rawValue)
@@ -163,28 +217,45 @@ final class AIConfig {
     }
 
     private static func normalizedServerURL(_ rawValue: String, port: Int) -> String {
-        let fallback = "http://\(currentHost):\(port)"
-        guard !rawValue.isEmpty else { return fallback }
-        guard var components = URLComponents(string: rawValue) else { return rawValue }
-
-        if let host = components.host, staleHosts.contains(host) {
-            components.scheme = components.scheme ?? "http"
-            components.host = currentHost
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard var components = URLComponents(string: trimmed) else { return trimmed }
+        components.scheme = components.scheme ?? "http"
+        if components.port == nil {
             components.port = port
-            return components.string ?? fallback
         }
+        return components.string ?? trimmed
+    }
 
-        return rawValue
+    private static func inferredLlamaCppURL(mlxURL: String, ollamaURL: String) -> String {
+        for candidate in [mlxURL, ollamaURL] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, var components = URLComponents(string: trimmed) else { continue }
+            components.scheme = components.scheme ?? "http"
+            components.port = 8081
+            components.path = ""
+            return components.string ?? ""
+        }
+        return ""
     }
 
     var selectedTextModel: TextModelOption {
         TextModelCatalog.option(for: textModelID) ?? TextModelCatalog.options[0]
     }
 
+    var selectedLlamaCppModel: LlamaCppModelOption {
+        LlamaCppModelCatalog.option(for: model) ?? LlamaCppModelCatalog.options[0]
+    }
+
     func applyProviderDefaultsIfNeeded() {
         if provider == .onDevice {
             inferencePath = .appleVisionOCRPlusText
             model = selectedTextModel.id
+        } else if provider == .llamaCpp {
+            inferencePath = .directVLM
+            if LlamaCppModelCatalog.option(for: model) == nil {
+                model = LlamaCppModelCatalog.defaultOptionID
+            }
         }
     }
 }

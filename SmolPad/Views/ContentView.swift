@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var voiceManager = VoiceManager()
     @State private var showSettings = false
     @State private var backendStatus = BackendStatusSnapshot(label: "Connect: MLX", isConnected: false)
+    @StateObject private var onDeviceRuntimeStatus = OnDeviceRuntimeStatus.shared
 
     var body: some View {
         ZStack {
@@ -149,7 +150,8 @@ struct ContentView: View {
                 await MainActor.run {
                     backendStatus = snapshot
                 }
-                try? await Task.sleep(for: .seconds(5))
+                let interval = await BackendStatusService.nextPollInterval(config: aiConfig)
+                try? await Task.sleep(for: .seconds(interval))
             }
         }
     }
@@ -159,6 +161,7 @@ struct ContentView: View {
             aiConfig.provider.rawValue,
             aiConfig.inferencePath.rawValue,
             aiConfig.textModelID,
+            aiConfig.model,
             aiConfig.mlxURL,
             aiConfig.ollamaURL,
             aiConfig.apiKey
@@ -166,19 +169,32 @@ struct ContentView: View {
     }
 
     private var backendStatusPill: some View {
-        let tint = backendStatus.isConnected
-            ? Color(red: 0.11, green: 0.63, blue: 0.31)
-            : Color(red: 0.83, green: 0.17, blue: 0.17)
+        let runtimeOverlay = runtimeOverlayStatus
+        let tint = runtimeOverlay?.tint ?? (
+            backendStatus.isConnected
+                ? Color(red: 0.11, green: 0.63, blue: 0.31)
+                : Color(red: 0.83, green: 0.17, blue: 0.17)
+        )
 
-        return HStack(spacing: 8) {
+        return HStack(spacing: 10) {
             Circle()
                 .fill(tint)
                 .frame(width: 10, height: 10)
                 .shadow(color: tint.opacity(0.85), radius: 8)
 
-            Text(backendStatus.label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(white: 0.24))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(backendStatus.label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(white: 0.24))
+
+                if let runtimeOverlay {
+                    Text(runtimeOverlay.text)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(white: 0.36))
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                        .id(runtimeOverlay.id)
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -188,6 +204,47 @@ struct ContentView: View {
                 .strokeBorder(tint.opacity(0.28), lineWidth: 1)
         }
         .shadow(color: tint.opacity(backendStatus.isConnected ? 0.18 : 0.12), radius: 12, y: 3)
+        .animation(.easeInOut(duration: 0.24), value: runtimeOverlay?.id ?? "idle")
+    }
+
+    private var runtimeOverlayStatus: RuntimeOverlayStatus? {
+        guard (aiConfig.provider == .onDevice || aiConfig.provider == .llamaCpp), onDeviceRuntimeStatus.isVisible else { return nil }
+
+        switch onDeviceRuntimeStatus.phase {
+        case .idle:
+            return nil
+        case .preparing:
+            return RuntimeOverlayStatus(
+                id: "preparing-\(onDeviceRuntimeStatus.modelIdentifier)",
+                text: "Preparing model",
+                tint: Color(red: 0.82, green: 0.58, blue: 0.15)
+            )
+        case .downloading:
+            let percent = Int((onDeviceRuntimeStatus.progressFraction * 100).rounded())
+            return RuntimeOverlayStatus(
+                id: "downloading-\(onDeviceRuntimeStatus.modelIdentifier)-\(percent)",
+                text: "Downloading model \(percent)%",
+                tint: Color(red: 0.20, green: 0.52, blue: 0.87)
+            )
+        case .ready:
+            return RuntimeOverlayStatus(
+                id: "ready-\(onDeviceRuntimeStatus.modelIdentifier)",
+                text: "Model ready",
+                tint: Color(red: 0.11, green: 0.63, blue: 0.31)
+            )
+        case .generating:
+            return RuntimeOverlayStatus(
+                id: "generating-\(onDeviceRuntimeStatus.modelIdentifier)",
+                text: "Running on device",
+                tint: Color(red: 0.55, green: 0.34, blue: 0.84)
+            )
+        case .failed:
+            return RuntimeOverlayStatus(
+                id: "failed-\(onDeviceRuntimeStatus.modelIdentifier)",
+                text: "On-device error",
+                tint: Color(red: 0.83, green: 0.17, blue: 0.17)
+            )
+        }
     }
 }
 
@@ -196,18 +253,32 @@ private struct BackendStatusSnapshot {
     let isConnected: Bool
 }
 
+private struct RuntimeOverlayStatus {
+    let id: String
+    let text: String
+    let tint: Color
+}
+
 private enum BackendStatusService {
     static func check(config: AIConfig) async -> BackendStatusSnapshot {
         switch config.provider {
         case .onDevice:
             let ok = OnDeviceTextClient.isRuntimeAvailable
-            let label = ok ? "Connect: \(config.provider.rawValue)" : "On Device Unavailable"
-            return BackendStatusSnapshot(label: label, isConnected: ok)
+            return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
+        case .llamaCpp:
+            let ok = EmbeddedLlamaVisionClient.isRuntimeAvailable && EmbeddedLlamaVisionClient.isModelInstalled(for: config)
+            return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
         case .mlx:
-            let ok = await isReachable(urlString: "\(config.mlxURL)/v1/models")
+            guard let probeURL = probeURL(baseURL: config.mlxURL, path: "/v1/models") else {
+                return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: false)
+            }
+            let ok = await BackendProbeCoordinator.shared.probe(url: probeURL)
             return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
         case .ollama:
-            let ok = await isReachable(urlString: "\(config.ollamaURL)/api/tags")
+            guard let probeURL = probeURL(baseURL: config.ollamaURL, path: "/api/tags") else {
+                return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: false)
+            }
+            let ok = await BackendProbeCoordinator.shared.probe(url: probeURL)
             return BackendStatusSnapshot(label: "Connect: \(config.provider.rawValue)", isConnected: ok)
         case .openai, .claude:
             let ok = !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -215,8 +286,29 @@ private enum BackendStatusService {
         }
     }
 
-    private static func isReachable(urlString: String) async -> Bool {
-        guard let url = URL(string: urlString) else { return false }
+    static func nextPollInterval(config: AIConfig) async -> TimeInterval {
+        switch config.provider {
+        case .llamaCpp:
+            return 15
+        case .mlx:
+            guard let probeURL = probeURL(baseURL: config.mlxURL, path: "/v1/models") else { return 30 }
+            return await BackendProbeCoordinator.shared.nextPollInterval(for: probeURL)
+        case .ollama:
+            guard let probeURL = probeURL(baseURL: config.ollamaURL, path: "/api/tags") else { return 30 }
+            return await BackendProbeCoordinator.shared.nextPollInterval(for: probeURL)
+        case .onDevice, .openai, .claude:
+            return 15
+        }
+    }
+
+    private static func probeURL(baseURL: String, path: String) -> URL? {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed + path) else { return nil }
+        return url
+    }
+
+    fileprivate static func isReachable(url: URL) async -> Bool {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 4
@@ -233,5 +325,49 @@ private enum BackendStatusService {
         } catch {
             return false
         }
+    }
+}
+
+private actor BackendProbeCoordinator {
+    static let shared = BackendProbeCoordinator()
+
+    private struct ProbeState {
+        var consecutiveFailures = 0
+        var nextAllowedAttempt = Date.distantPast
+        var lastKnownReachable = false
+    }
+
+    private var states: [String: ProbeState] = [:]
+
+    func probe(url: URL) async -> Bool {
+        let key = url.absoluteString
+        let now = Date()
+        var state = states[key] ?? ProbeState()
+
+        if now < state.nextAllowedAttempt {
+            return state.lastKnownReachable
+        }
+
+        let ok = await BackendStatusService.isReachable(url: url)
+        if ok {
+            state.consecutiveFailures = 0
+            state.nextAllowedAttempt = now.addingTimeInterval(15)
+            state.lastKnownReachable = true
+        } else {
+            state.consecutiveFailures += 1
+            let cooldown = min(pow(2, Double(max(0, state.consecutiveFailures - 1))) * 5, 120)
+            state.nextAllowedAttempt = now.addingTimeInterval(cooldown)
+            state.lastKnownReachable = false
+        }
+
+        states[key] = state
+        return ok
+    }
+
+    func nextPollInterval(for url: URL) -> TimeInterval {
+        let key = url.absoluteString
+        let state = states[key] ?? ProbeState()
+        let remaining = state.nextAllowedAttempt.timeIntervalSinceNow
+        return max(5, remaining > 0 ? remaining : 15)
     }
 }

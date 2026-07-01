@@ -123,7 +123,7 @@ final class AppleSpeechRecognitionProvider: NSObject, SpeechRecognitionProviding
     }
 
     func stop() -> String {
-        DiagnosticsLogger.voice.info("AppleSpeech stop keeping transcript chars=\(transcript.count, privacy: .public)")
+        DiagnosticsLogger.voice.info("AppleSpeech stop keeping transcript chars=\(self.transcript.count, privacy: .public)")
         isFinishing = true
         stopAudioCapture()
         return transcript

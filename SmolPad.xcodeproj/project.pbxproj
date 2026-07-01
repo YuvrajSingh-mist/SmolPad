@@ -32,6 +32,18 @@
 		A10000000000000000000017 /* AppleSpeechFileFallbackTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */; };
 		A10000000000000000000018 /* AppleVisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* AppleVisionOCRService.swift */; };
 		A10000000000000000000019 /* OnDeviceTextClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* OnDeviceTextClient.swift */; };
+		A1000000000000000000001A /* Uzu in Frameworks */ = {isa = PBXBuildFile; productRef = A11000000000000000000004 /* Uzu */; };
+		A1000000000000000000001B /* EmbeddedLlamaVisionClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* EmbeddedLlamaVisionClient.swift */; };
+		A1000000000000000000001C /* EmbeddedLlamaBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* EmbeddedLlamaBridge.mm */; };
+		A1000000000000000000001D /* libllama.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001C /* libllama.a */; };
+		A1000000000000000000001E /* libmtmd.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001D /* libmtmd.a */; };
+		A1000000000000000000001F /* libggml.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001E /* libggml.a */; };
+		A10000000000000000000020 /* libggml-base.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* libggml-base.a */; };
+		A10000000000000000000021 /* libggml-cpu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* libggml-cpu.a */; };
+		A10000000000000000000022 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* Metal.framework */; };
+		A10000000000000000000023 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* Accelerate.framework */; };
+		A10000000000000000000024 /* libggml-blas.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* libggml-blas.a */; };
+		A10000000000000000000025 /* libggml-metal.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* libggml-metal.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +71,19 @@
 		A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechFileFallbackTranscriber.swift; sourceTree = "<group>"; };
 		A20000000000000000000017 /* AppleVisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleVisionOCRService.swift; sourceTree = "<group>"; };
 		A20000000000000000000018 /* OnDeviceTextClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceTextClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* EmbeddedLlamaVisionClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedLlamaVisionClient.swift; sourceTree = "<group>"; };
+		A2000000000000000000001A /* EmbeddedLlamaBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = EmbeddedLlamaBridge.mm; sourceTree = "<group>"; };
+		A2000000000000000000001B /* EmbeddedLlamaBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = EmbeddedLlamaBridge.h; sourceTree = "<group>"; };
+		A2000000000000000000001C /* libllama.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/src/Release-iphoneos/libllama.a; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000001D /* libmtmd.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/tools/mtmd/Release-iphoneos/libmtmd.a; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000001E /* libggml.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/ggml/src/Release-iphoneos/libggml.a; sourceTree = SOURCE_ROOT; };
+		A2000000000000000000001F /* libggml-base.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/ggml/src/Release-iphoneos/libggml-base.a; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000020 /* libggml-cpu.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/ggml/src/Release-iphoneos/libggml-cpu.a; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000021 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		A20000000000000000000022 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		A20000000000000000000023 /* SmolPad-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SmolPad-Bridging-Header.h"; sourceTree = "<group>"; };
+		A20000000000000000000024 /* libggml-blas.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/ggml/src/ggml-blas/Release-iphoneos/libggml-blas.a; sourceTree = SOURCE_ROOT; };
+		A20000000000000000000025 /* libggml-metal.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = Vendor/llama.cpp/build-ios-device/ggml/src/ggml-metal/Release-iphoneos/libggml-metal.a; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +94,16 @@
 				A1000000000000000000000D /* MarkdownUI in Frameworks */,
 				A1000000000000000000000E /* SwiftUIMath in Frameworks */,
 				A10000000000000000000015 /* WhisperKit in Frameworks */,
+				A1000000000000000000001A /* Uzu in Frameworks */,
+				A1000000000000000000001D /* libllama.a in Frameworks */,
+				A1000000000000000000001E /* libmtmd.a in Frameworks */,
+				A1000000000000000000001F /* libggml.a in Frameworks */,
+				A10000000000000000000020 /* libggml-base.a in Frameworks */,
+				A10000000000000000000021 /* libggml-cpu.a in Frameworks */,
+				A10000000000000000000022 /* Metal.framework in Frameworks */,
+				A10000000000000000000023 /* Accelerate.framework in Frameworks */,
+				A10000000000000000000024 /* libggml-blas.a in Frameworks */,
+				A10000000000000000000025 /* libggml-metal.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +115,15 @@
 			children = (
 				A40000000000000000000002 /* SmolPad */,
 				A40000000000000000000006 /* Products */,
+				A20000000000000000000021 /* Metal.framework */,
+				A20000000000000000000022 /* Accelerate.framework */,
+				A2000000000000000000001C /* libllama.a */,
+				A2000000000000000000001D /* libmtmd.a */,
+				A2000000000000000000001E /* libggml.a */,
+				A2000000000000000000001F /* libggml-base.a */,
+				A20000000000000000000020 /* libggml-cpu.a */,
+				A20000000000000000000024 /* libggml-blas.a */,
+				A20000000000000000000025 /* libggml-metal.a */,
 			);
 			sourceTree = "<group>";
 		};
@@ -87,6 +131,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* SmolPadApp.swift */,
+				A20000000000000000000023 /* SmolPad-Bridging-Header.h */,
 				A2000000000000000000000C /* Info.plist */,
 				A40000000000000000000003 /* State */,
 				A40000000000000000000004 /* Views */,
@@ -132,6 +177,9 @@
 				A20000000000000000000016 /* AppleSpeechFileFallbackTranscriber.swift */,
 				A20000000000000000000017 /* AppleVisionOCRService.swift */,
 				A20000000000000000000018 /* OnDeviceTextClient.swift */,
+				A20000000000000000000019 /* EmbeddedLlamaVisionClient.swift */,
+				A2000000000000000000001A /* EmbeddedLlamaBridge.mm */,
+				A2000000000000000000001B /* EmbeddedLlamaBridge.h */,
 				A2000000000000000000000B /* VoiceManager.swift */,
 			);
 			path = Services;
@@ -165,6 +213,7 @@
 				A11000000000000000000001 /* MarkdownUI */,
 				A11000000000000000000002 /* SwiftUIMath */,
 				A11000000000000000000003 /* WhisperKit */,
+				A11000000000000000000004 /* Uzu */,
 			);
 			productName = SmolPad;
 			productReference = A2000000000000000000000D /* SmolPad.app */;
@@ -198,6 +247,7 @@
 				A12000000000000000000001 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				A12000000000000000000002 /* XCRemoteSwiftPackageReference "swiftui-math" */,
 				A12000000000000000000003 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				A12000000000000000000004 /* XCRemoteSwiftPackageReference "uzu" */,
 			);
 			productRefGroup = A40000000000000000000006 /* Products */;
 			projectDirPath = "";
@@ -236,6 +286,8 @@
 				A10000000000000000000017 /* AppleSpeechFileFallbackTranscriber.swift in Sources */,
 				A10000000000000000000018 /* AppleVisionOCRService.swift in Sources */,
 				A10000000000000000000019 /* OnDeviceTextClient.swift in Sources */,
+				A1000000000000000000001B /* EmbeddedLlamaVisionClient.swift in Sources */,
+				A1000000000000000000001C /* EmbeddedLlamaBridge.mm in Sources */,
 				A1000000000000000000000B /* VoiceManager.swift in Sources */,
 				A10000000000000000000002 /* ContentView.swift in Sources */,
 				A10000000000000000000003 /* CanvasHostView.swift in Sources */,
@@ -302,7 +354,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -357,7 +409,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -377,12 +429,30 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SmolPad/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SmolPad;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/include",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/ggml/include",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/tools/mtmd",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/src/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/tools/mtmd/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/ggml-blas/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/ggml-metal/Release-iphoneos",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.smol.smolpad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -390,6 +460,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "SmolPad/SmolPad-Bridging-Header.h";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -407,12 +478,30 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = SmolPad/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SmolPad;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/include",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/ggml/include",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/tools/mtmd",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/src/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/tools/mtmd/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/ggml-blas/Release-iphoneos",
+					"$(PROJECT_DIR)/Vendor/llama.cpp/build-ios-device/ggml/src/ggml-metal/Release-iphoneos",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.smol.smolpad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -420,6 +509,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "SmolPad/SmolPad-Bridging-Header.h";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 2;
@@ -474,6 +564,14 @@
 				minimumVersion = 0.9.0;
 			};
 		};
+		A12000000000000000000004 /* XCRemoteSwiftPackageReference "uzu" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/trymirai/uzu.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.5.12;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -491,6 +589,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A12000000000000000000003 /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		A11000000000000000000004 /* Uzu */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A12000000000000000000004 /* XCRemoteSwiftPackageReference "uzu" */;
+			productName = Uzu;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

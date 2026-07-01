@@ -86,7 +86,7 @@ final class WhisperKitSpeechRecognitionProvider: SpeechRecognitionProviding {
     }
 
     func stop() -> String {
-        DiagnosticsLogger.voice.info("WhisperKit stop requested chars=\(transcript.count, privacy: .public)")
+        DiagnosticsLogger.voice.info("WhisperKit stop requested chars=\(self.transcript.count, privacy: .public)")
         #if canImport(WhisperKit)
         stopCapturingAudio()
         beginFinalTranscription(useFallbackOnFailure: true)
@@ -133,7 +133,7 @@ final class WhisperKitSpeechRecognitionProvider: SpeechRecognitionProviding {
             try engine.start()
             delegate?.speechProvider(self, didChangeListeningState: true)
             startPartialTranscriptionLoop()
-            DiagnosticsLogger.voice.info("WhisperKit live capture started sampleRate=\(sampleRate, privacy: .public)")
+            DiagnosticsLogger.voice.info("WhisperKit live capture started sampleRate=\(self.sampleRate, privacy: .public)")
         } catch {
             DiagnosticsLogger.voice.error("WhisperKit live capture failed: \(error.localizedDescription, privacy: .public)")
             delegate?.speechProvider(self, didFailWithMessage: "WhisperKit could not start recording audio.")
@@ -290,7 +290,7 @@ final class WhisperKitSpeechRecognitionProvider: SpeechRecognitionProviding {
         buffer.frameLength = frameCount
         let destination = buffer.floatChannelData![0]
         samples.withUnsafeBufferPointer { source in
-            destination.assign(from: source.baseAddress!, count: samples.count)
+            destination.update(from: source.baseAddress!, count: samples.count)
         }
 
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("smolpad-whisper-\(UUID().uuidString).wav")

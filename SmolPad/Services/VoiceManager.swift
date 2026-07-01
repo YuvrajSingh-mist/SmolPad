@@ -10,17 +10,17 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     var error: String?
     var preferredBackend: SpeechRecognitionBackend {
         didSet {
-            guard preferredBackend != oldValue else { return }
-            activeBackend = resolvedBackend(for: preferredBackend)
+            guard self.preferredBackend != oldValue else { return }
+            activeBackend = resolvedBackend(for: self.preferredBackend)
             savePreferences()
-            DiagnosticsLogger.voice.info("Preferred speech backend changed to \(preferredBackend.rawValue, privacy: .public)")
+            DiagnosticsLogger.voice.info("Preferred speech backend changed to \(self.preferredBackend.rawValue, privacy: .public)")
         }
     }
     var whisperKitModelIdentifier: String {
         didSet {
-            guard whisperKitModelIdentifier != oldValue else { return }
+            guard self.whisperKitModelIdentifier != oldValue else { return }
             savePreferences()
-            DiagnosticsLogger.voice.info("WhisperKit model identifier updated to \(whisperKitModelIdentifier, privacy: .public)")
+            DiagnosticsLogger.voice.info("WhisperKit model identifier updated to \(self.whisperKitModelIdentifier, privacy: .public)")
         }
     }
     private(set) var activeBackend: SpeechRecognitionBackend
@@ -51,11 +51,11 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     }
 
     var preferredBackendDescription: String {
-        preferredBackend.description
+        self.preferredBackend.description
     }
 
     var activeBackendDisplayName: String {
-        provider(for: activeBackend).displayName
+        provider(for: self.activeBackend).displayName
     }
 
     var whisperKitAvailable: Bool {
@@ -63,7 +63,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     }
 
     func requestPermission() {
-        DiagnosticsLogger.voice.info("VoiceManager requesting permissions preferredBackend=\(preferredBackend.rawValue, privacy: .public)")
+        DiagnosticsLogger.voice.info("VoiceManager requesting permissions preferredBackend=\(self.preferredBackend.rawValue, privacy: .public)")
 
         appleProvider.requestPermission()
         if whisperKitProvider.isSupported {
@@ -72,7 +72,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     }
 
     func start() {
-        let backend = resolvedBackend(for: preferredBackend)
+        let backend = resolvedBackend(for: self.preferredBackend)
         activeBackend = backend
         let provider = provider(for: backend)
 
@@ -91,7 +91,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
         provider.start(
             configuration: SpeechRecognitionSessionConfiguration(
                 locale: Locale.current,
-                whisperKitModel: whisperKitModelIdentifier
+                whisperKitModel: self.whisperKitModelIdentifier
             )
         )
     }
@@ -101,8 +101,8 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
             return transcript
         }
 
-        DiagnosticsLogger.voice.info("VoiceManager stop backend=\(activeBackend.rawValue, privacy: .public)")
-        if activeBackend == .whisperKit {
+        DiagnosticsLogger.voice.info("VoiceManager stop backend=\(self.activeBackend.rawValue, privacy: .public)")
+        if self.activeBackend == .whisperKit {
             isProcessingSpeech = true
         }
         let finalTranscript = activeProvider.stop()
@@ -113,7 +113,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
     }
 
     func stopAndDiscardTranscript() {
-        DiagnosticsLogger.voice.notice("VoiceManager stop and discard backend=\(activeBackend.rawValue, privacy: .public)")
+        DiagnosticsLogger.voice.notice("VoiceManager stop and discard backend=\(self.activeBackend.rawValue, privacy: .public)")
         activeProvider?.stopAndDiscardTranscript()
         transcript = ""
         isProcessingSpeech = false
@@ -121,12 +121,12 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
 
     func speechProvider(_ provider: any SpeechRecognitionProviding, didChangeListeningState isListening: Bool) {
         self.isListening = isListening
-        if !isListening, activeBackend == provider.backend {
-            if provider.backend != .whisperKit || !isProcessingSpeech {
+        if !isListening, self.activeBackend == provider.backend {
+            if provider.backend != .whisperKit || !self.isProcessingSpeech {
                 activeProvider = nil
             }
         }
-        DiagnosticsLogger.voice.debug("VoiceManager listening state backend=\(provider.backend.rawValue, privacy: .public) isListening=\(isListening, privacy: .public)")
+        DiagnosticsLogger.voice.debug("VoiceManager listening state backend=\(provider.backend.rawValue, privacy: .public) isListening=\(self.isListening, privacy: .public)")
     }
 
     func speechProvider(_ provider: any SpeechRecognitionProviding, didUpdateTranscript transcript: String, isFinal: Bool) {
@@ -134,17 +134,17 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
         self.error = nil
         if isFinal {
             isProcessingSpeech = false
-            if activeBackend == provider.backend {
+            if self.activeBackend == provider.backend {
                 activeProvider = nil
             }
         }
         DiagnosticsLogger.voice.debug(
-            "VoiceManager transcript update backend=\(provider.backend.rawValue, privacy: .public) final=\(isFinal, privacy: .public) text=\(DiagnosticsLogger.truncated(transcript, limit: 240), privacy: .public)"
+            "VoiceManager transcript update backend=\(provider.backend.rawValue, privacy: .public) final=\(isFinal, privacy: .public) text=\(DiagnosticsLogger.truncated(self.transcript, limit: 240), privacy: .public)"
         )
     }
 
     func speechProvider(_ provider: any SpeechRecognitionProviding, didFailWithMessage message: String) {
-        if provider.backend == .whisperKit, preferredBackend == .automatic, !isListening, !isProcessingSpeech {
+        if provider.backend == .whisperKit, self.preferredBackend == .automatic, !self.isListening, !self.isProcessingSpeech {
             DiagnosticsLogger.voice.notice("Automatic SR fallback switching from WhisperKit to Apple Speech")
             activeBackend = .appleSpeech
             activeProvider = appleProvider
@@ -152,7 +152,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
             appleProvider.start(
                 configuration: SpeechRecognitionSessionConfiguration(
                     locale: Locale.current,
-                    whisperKitModel: whisperKitModelIdentifier
+                    whisperKitModel: self.whisperKitModelIdentifier
                 )
             )
             return
@@ -160,7 +160,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
 
         error = message
         isProcessingSpeech = false
-        if activeBackend == provider.backend {
+        if self.activeBackend == provider.backend {
             isListening = false
             activeProvider = nil
         }
@@ -202,7 +202,7 @@ final class VoiceManager: NSObject, SpeechRecognitionProviderDelegate {
 
     private func savePreferences() {
         let defaults = UserDefaults.standard
-        defaults.set(preferredBackend.rawValue, forKey: Key.preferredBackend.rawValue)
-        defaults.set(whisperKitModelIdentifier, forKey: Key.whisperKitModelIdentifier.rawValue)
+        defaults.set(self.preferredBackend.rawValue, forKey: Key.preferredBackend.rawValue)
+        defaults.set(self.whisperKitModelIdentifier, forKey: Key.whisperKitModelIdentifier.rawValue)
     }
 }
